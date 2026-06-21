@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#0b0d10" />
+<title>RogueChat — アスキー・ローグ × LLM</title>
+<link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div id="title">RogueChat</div>
+      <div id="stats">
+        <span class="stat" id="st-floor">B1F</span>
+        <span class="stat" id="st-lv">Lv1</span>
+        <span class="stat hp" id="st-hp">HP 20/20</span>
+        <span class="stat mp" id="st-mp">MP 5/5</span>
+        <span class="stat gold" id="st-gold">G 0</span>
+      </div>
+      <button id="btn-settings" title="設定">⚙</button>
+    </header>
+
+    <main id="main">
+      <canvas id="screen"></canvas>
+    </main>
+
+    <section id="log" aria-live="polite"></section>
+
+    <form id="cmdform" autocomplete="off">
+      <input id="cmdinput" type="text" inputmode="text"
+             placeholder="自由にコマンドを入力（例：祈る / 壁を調べる / 火球を唱える）" />
+      <button id="cmdsend" type="submit">実行</button>
+    </form>
+
+    <nav id="controls">
+      <div id="dpad">
+        <button class="dir" data-dx="-1" data-dy="-1">↖</button>
+        <button class="dir" data-dx="0"  data-dy="-1">↑</button>
+        <button class="dir" data-dx="1"  data-dy="-1">↗</button>
+        <button class="dir" data-dx="-1" data-dy="0">←</button>
+        <button class="dir wait" data-dx="0" data-dy="0">・</button>
+        <button class="dir" data-dx="1"  data-dy="0">→</button>
+        <button class="dir" data-dx="-1" data-dy="1">↙</button>
+        <button class="dir" data-dx="0"  data-dy="1">↓</button>
+        <button class="dir" data-dx="1"  data-dy="1">↘</button>
+      </div>
+      <div id="actions">
+        <button id="act-descend">降りる &gt;</button>
+        <button id="act-inv">持ち物</button>
+        <button id="act-rest">休む</button>
+      </div>
+    </nav>
+  </div>
+
+  <div id="settings" class="panel hidden">
+    <div class="panel-inner">
+      <h2>設定</h2>
+      <label>Anthropic APIキー
+        <input id="apikey" type="password" placeholder="sk-ant-..." />
+      </label>
+      <p class="note">
+        ※キーはこの端末のブラウザ（localStorage）にのみ保存され、Anthropic API へ直接送信されます。
+        共有端末では入力後に「キーを消去」してください。
+      </p>
+      <label>モデル
+        <select id="model">
+          <option value="claude-haiku-4-5">Haiku 4.5（高速・低コスト・推奨）</option>
+          <option value="claude-sonnet-4-6">Sonnet 4.6（バランス）</option>
+          <option value="claude-opus-4-8">Opus 4.8（高品質・低速）</option>
+        </select>
+      </label>
+      <div class="panel-buttons">
+        <button id="apikey-clear">キーを消去</button>
+        <button id="newgame">最初から</button>
+        <button id="settings-close">閉じる</button>
+      </div>
+      <p class="note small">
+        矢印キー / hjkl / yubn でも移動できます。隣のモンスターに向かって移動すると攻撃します。
+      </p>
+    </div>
+  </div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
