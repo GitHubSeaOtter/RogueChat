@@ -211,3 +211,41 @@ html, body {
   font-family: inherit;
 }
 #settings-close { background: var(--accent); color: #06241a; font-weight: bold; }
+
+/* --- inventory modal --- */
+#inventory .panel-inner {
+  max-height: 86dvh;
+  overflow-y: auto;
+}
+.inv-head {
+  margin: 14px 0 6px;
+  font-size: 14px;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+#inv-stats { margin-bottom: 4px; color: var(--fg); }
+.inv-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #1b2127;
+}
+.inv-name { font-size: 14px; flex: 1; }
+.inv-btns { display: flex; gap: 6px; }
+.inv-btn {
+  background: #1d242c;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  touch-action: manipulation;
+}
+.inv-btn.equip { border-color: #3a5; color: #9e9; }
+.inv-btn.use { border-color: #58a; color: #9cf; }
+.inv-btn:active { background: #2a333c; }

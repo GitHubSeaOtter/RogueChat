@@ -16,6 +16,8 @@
         <span class="stat" id="st-lv">Lv1</span>
         <span class="stat hp" id="st-hp">HP 20/20</span>
         <span class="stat mp" id="st-mp">MP 5/5</span>
+        <span class="stat" id="st-atk">A5</span>
+        <span class="stat" id="st-def">D1</span>
         <span class="stat gold" id="st-gold">G 0</span>
       </div>
       <button id="btn-settings" title="設定">⚙</button>
@@ -51,6 +53,20 @@
         <button id="act-rest">休む</button>
       </div>
     </nav>
+  </div>
+
+  <div id="inventory" class="panel hidden">
+    <div class="panel-inner">
+      <h2>持ち物</h2>
+      <div id="inv-stats" class="note"></div>
+      <h3 class="inv-head">装備</h3>
+      <div id="inv-equip"></div>
+      <h3 class="inv-head">所持品</h3>
+      <div id="inv-list"></div>
+      <div class="panel-buttons">
+        <button id="inv-close">閉じる</button>
+      </div>
+    </div>
   </div>
 
   <div id="settings" class="panel hidden">
