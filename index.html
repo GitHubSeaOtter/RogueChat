@@ -23,6 +23,8 @@
       <button id="btn-settings" title="設定">⚙</button>
     </header>
 
+    <div id="statusbar"></div>
+
     <main id="main">
       <canvas id="screen"></canvas>
     </main>
@@ -53,6 +55,10 @@
         <button id="act-rest">休む</button>
       </div>
     </nav>
+  </div>
+
+  <div id="loading" class="hidden">
+    <div class="loading-box"><span class="spinner"></span><span id="loading-text">この階を生成中…</span></div>
   </div>
 
   <div id="inventory" class="panel hidden">

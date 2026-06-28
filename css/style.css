@@ -51,6 +51,58 @@ html, body {
   font-size: 20px; cursor: pointer; padding: 0 4px;
 }
 
+/* --- status bar --- */
+#statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 10px;
+  background: var(--panel);
+  font-size: 12px;
+  min-height: 0;
+}
+#statusbar:not(:empty) {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.status-chip {
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: #1d242c;
+  border: 1px solid var(--border);
+}
+
+/* --- loading overlay --- */
+#loading {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+#loading.hidden { display: none; }
+.loading-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--accent);
+  font-size: 15px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 24px;
+}
+.spinner {
+  width: 18px; height: 18px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* --- map --- */
 #main {
   flex: 1;
@@ -248,4 +300,5 @@ html, body {
 }
 .inv-btn.equip { border-color: #3a5; color: #9e9; }
 .inv-btn.use { border-color: #58a; color: #9cf; }
+.inv-btn.drop { border-color: #a55; color: #e99; }
 .inv-btn:active { background: #2a333c; }
