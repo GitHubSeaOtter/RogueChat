@@ -72,12 +72,16 @@ export class Game {
     this.player = null;
   }
 
-  async newGame() {
+  // character の素体パラメータから毎回初期化する。
+  // 成長・アイテムはプレイ終了時に character へ書き戻さない（非持ち越し）。
+  async newGame(character) {
     this.nextId = 1;
+    this.character = character || null;
+    const base = character || { hp: 20, mp: 5, atk: 5, def: 1 };
     this.player = {
       x: 0, y: 0,
-      hp: 20, maxHp: 20, mp: 5, maxMp: 5,
-      atk: 5, def: 1,
+      hp: base.hp, maxHp: base.hp, mp: base.mp, maxMp: base.mp,
+      atk: base.atk, def: base.def,
       level: 1, xp: 0, xpNext: 20, gold: 0,
       inventory: [],
       equipment: { weapon: null, armor: null, shield: null },
@@ -91,8 +95,9 @@ export class Game {
     this.floor = 0;
     this.dead = false;
     this.clearLog();
-    this.message('RogueChat の世界へようこそ。', 'sys');
-    this.message('各階の構成はAIが生成する。「持ち物」から装備変更・使用・破棄ができる。', 'sys');
+    if (character) this.message(`${character.name} はダンジョンに足を踏み入れた。`, 'sys');
+    else this.message('RogueChat の世界へようこそ。', 'sys');
+    this.message('各階の構成はAIが生成する。マップをタップするとそのマスを調べられる。', 'sys');
     await this.goToFloor(1);
   }
 
@@ -409,6 +414,70 @@ export class Game {
     return true;
   }
 
+  // 道なり移動: リピート中の次の進行方向を返す（続行不可なら null）。
+  runNextDir(dx, dy) {
+    if (this.dead || !this.player) return null;
+    const p = this.player;
+    if (this.isIncapacitated(p) || this.isConfused(p)) return null;
+    // 敵が見えたら停止
+    if (this.monsters.some((m) => this.visible[m.y][m.x] && dist(m, p) <= 6)) return null;
+    // 足元に興味深いものがあれば停止
+    const here = this.grid[p.y][p.x];
+    if (here === TILE.STAIRS_DOWN || here === TILE.DOOR) return null;
+    if (this.items.some((it) => it.x === p.x && it.y === p.y)) return null;
+    if (this.traps.some((t) => t.known && t.x === p.x && t.y === p.y)) return null;
+
+    const ok = (ddx, ddy) => {
+      const nx = p.x + ddx, ny = p.y + ddy;
+      if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) return false;
+      if (!isWalkable(this.grid[ny][nx])) return false;
+      return !this.monsters.some((m) => m.x === nx && m.y === ny);
+    };
+    if (ok(dx, dy)) return { dx, dy };
+    // 上下左右の移動中のみ、直角の曲がり角を追従（開口がちょうど1つのとき）
+    if (dx === 0 || dy === 0) {
+      const turns = dx === 0
+        ? [{ dx: -1, dy: 0 }, { dx: 1, dy: 0 }]
+        : [{ dx: 0, dy: -1 }, { dx: 0, dy: 1 }];
+      const open = turns.filter((t) => ok(t.dx, t.dy));
+      if (open.length === 1) return open[0];
+    }
+    return null;
+  }
+
+  // タップ検分: マップ座標 (mx, my) の説明文を返す（マップ外は null）
+  describeAt(mx, my) {
+    if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) return null;
+    if (!this.seen[my][mx]) return 'まだ見えていない場所だ。';
+
+    const terrain = () => {
+      const t = this.grid[my][mx];
+      if (t === TILE.WALL) return '壁。';
+      if (t === TILE.DOOR) return '扉。';
+      if (t === TILE.STAIRS_DOWN) return '下り階段。「>」の上で「降りる」と次の階へ進める。';
+      return '石畳の床。';
+    };
+
+    if (!this.visible[my][mx]) return `（記憶にある地形）${terrain()}`;
+
+    if (mx === this.player.x && my === this.player.y) {
+      const name = this.character?.name || 'あなた';
+      return `${name} が立っている。足元は${this.underfootDesc()}。`;
+    }
+    const mon = this.monsters.find((m) => m.x === mx && m.y === my);
+    if (mon) {
+      const st = this.statusString(mon);
+      return `${mon.name}（HP ${mon.hp}/${mon.maxHp}` +
+        (mon.ability ? `、攻撃時に${mon.ability}を与えることがある` : '') +
+        (st ? `、状態: ${st}` : '') + '）';
+    }
+    const it = this.items.find((i) => i.x === mx && i.y === my);
+    if (it) return it.gold ? `金貨が落ちている。` : `${itemName(it.item)} が落ちている。`;
+    const trap = this.traps.find((t) => t.known && t.x === mx && t.y === my);
+    if (trap) return `${TRAP_NAME[trap.type]}がある。踏まないように。`;
+    return terrain();
+  }
+
   attackMonster(mon) {
     delete mon.statuses['睡眠'];
     const dmg = Math.max(1, this.atkTotal() - mon.def + randint(-1, 2));
@@ -620,8 +689,9 @@ export class Game {
   killPlayer() {
     this.player.hp = 0;
     this.dead = true;
-    this.message(`あなたは地下${this.floor}階で力尽きた……。`, 'bad');
-    this.message('「設定」→「最初から」で再挑戦できる。', 'sys');
+    const name = this.character?.name || 'あなた';
+    this.message(`${name}は地下${this.floor}階で力尽きた……。`, 'bad');
+    this.message('成長とアイテムは持ち越されない。⚙設定 →「最初から」か「キャラクター選択」で再挑戦できる。', 'sys');
   }
 
   // ---- 状態要約（LLM用） ----
@@ -668,6 +738,8 @@ export class Game {
   stateSummary() {
     const p = this.player;
     return {
+      charName: this.character?.name || '',
+      personality: this.character?.personality || '',
       floor: this.floor,
       theme: this.roster?.theme || '未知の階層',
       layout: this.roster?.layout || '不明',

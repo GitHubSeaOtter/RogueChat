@@ -1,6 +1,11 @@
 // Anthropic Messages API をブラウザから直接呼び出す。
 //  1) generateFloor: 階のテーマ・地形・モンスター群・アイテム群をAI生成
 //  2) adjudicate: 自由入力／アイテム使用の結果をAI判定（地形・敵の状態を反映）
+//  3) generateCharacter: 外見画像からキャラクターのプロフィールを生成（vision）
+//
+// モデル割当は docs/model-routing.md 参照:
+//  - 判定・フロア生成 = 設定で選択したモデル（既定 Haiku 4.5、高頻度・低コスト）
+//  - キャラ生成 = Sonnet 4.6 固定（低頻度だが生成物が永続するため 1 Tier 上げ）
 
 export const STATUS_NAMES = ['毒', '炎上', '出血', '麻痺', '睡眠', '凍結', '石化', '混乱', '朦朧', '盲目', '恐怖'];
 
@@ -9,7 +14,7 @@ function getModel() { return localStorage.getItem('roguechat_model') || 'claude-
 
 export function hasApiKey() { return !!getKey(); }
 
-async function callApi(system, schema, userContent, maxTokens) {
+async function callApi(system, schema, userContent, maxTokens, model) {
   const apiKey = getKey();
   if (!apiKey) throw new Error('NO_KEY');
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -21,7 +26,7 @@ async function callApi(system, schema, userContent, maxTokens) {
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model: getModel(),
+      model: model || getModel(),
       max_tokens: maxTokens,
       system,
       output_config: { format: { type: 'json_schema', schema } },
@@ -106,12 +111,50 @@ export async function generateFloor(ctx) {
   return callApi(FLOOR_SYSTEM, FLOOR_SCHEMA, user, 1500);
 }
 
+// ---------- キャラクター生成（vision） ----------
+const CHAR_MODEL = 'claude-sonnet-4-6';
+
+const CHAR_SYSTEM = `あなたはローグライクRPGのキャラクターメイカーです。
+渡された画像に写る人物・動物・キャラクターの見た目や雰囲気から、ダンジョンに挑む冒険者のプロフィールを生成してください。
+
+ルール:
+- name は日本語またはカタカナで12文字以内。画像の印象に合う固有名。
+- personality は60文字以内の一文。見た目から想像できる性格や癖を具体的に。
+- パラメータは画像の印象で強弱をつける: hp は 16〜28、mp は 3〜10、atk は 3〜7、def は 0〜3 の整数。
+  屈強そうなら hp/atk 寄り、賢そう・神秘的なら mp 寄り、重装備なら def 寄りに。合計が偏りすぎないように。`;
+
+const CHAR_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    personality: { type: 'string' },
+    hp: { type: 'integer' },
+    mp: { type: 'integer' },
+    atk: { type: 'integer' },
+    def: { type: 'integer' },
+  },
+  required: ['name', 'personality', 'hp', 'mp', 'atk', 'def'],
+  additionalProperties: false,
+};
+
+// portraitDataUrl: "data:image/jpeg;base64,..." 形式
+export async function generateCharacter(portraitDataUrl) {
+  const m = /^data:(image\/[a-z+.-]+);base64,(.+)$/.exec(portraitDataUrl || '');
+  if (!m) throw new Error('BAD_IMAGE');
+  const content = [
+    { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } },
+    { type: 'text', text: 'この画像から冒険者のプロフィールをスキーマに従い生成してください。' },
+  ];
+  return callApi(CHAR_SYSTEM, CHAR_SCHEMA, content, 400, CHAR_MODEL);
+}
+
 // ---------- 行動／アイテム使用の判定 ----------
 const ADJ_SYSTEM = `あなたはアスキー・ローグライクRPGのゲームマスター(GM)です。
 プレイヤーの自由行動、またはアイテム使用の結果を、現在の状態・地形・周囲の敵の状態を踏まえて判定します。
 
 方針:
 - もっともらしく、面白く、バランスを保つ。無敵化や即死級の効果は避ける。
+- プレイヤーの名前と性格が与えられた場合、描写(narration)や結果の味付けに反映する。
 - 魔法やアイテム効果は地形（罠・階段・通路）や周囲の敵に作用してよい。
 - 敵に作用する場合は monster_effects に対象の id を指定し、hp_delta（負=ダメージ）や status（状態異常名）を入れる。
 - 状態異常名は次から選ぶ: 毒,炎上,出血,麻痺,睡眠,凍結,石化,混乱,朦朧,盲目,恐怖。プレイヤーに付与/解除する場合は player_status / clear_status を使う。
@@ -176,6 +219,8 @@ export async function adjudicate(state, command) {
 
   const user =
     `# 現在の状態\n` +
+    (state.charName ? `プレイヤー: ${state.charName}\n` : '') +
+    (state.personality ? `性格: ${state.personality}\n` : '') +
     `階層: 地下${state.floor}階（${state.theme} / 地形:${state.layout}）\n` +
     `レベル: ${state.level}（経験値 ${state.xp}/${state.xpNext}）\n` +
     `HP: ${state.hp}/${state.maxHp}　MP: ${state.mp}/${state.maxMp}\n` +
