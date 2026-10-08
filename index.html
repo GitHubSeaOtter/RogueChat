@@ -1,152 +1,431 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<meta name="theme-color" content="#0b0d10" />
-<title>RogueChat — アスキー・ローグ × LLM</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0d10'/%3E%3Ctext x='8' y='13' font-size='13' text-anchor='middle' fill='%23ffe27a' font-family='monospace'%3E@%3C/text%3E%3C/svg%3E" />
-<link rel="stylesheet" href="./css/style.css" />
-</head>
-<body>
-  <div id="app">
-    <header id="topbar">
-      <div id="title">RogueChat</div>
-      <div id="stats">
-        <span class="stat name" id="st-name"></span>
-        <span class="stat" id="st-floor">B1F</span>
-        <span class="stat" id="st-lv">Lv1</span>
-        <span class="stat hp" id="st-hp">HP 20/20</span>
-        <span class="stat mp" id="st-mp">MP 5/5</span>
-        <span class="stat" id="st-atk">A5</span>
-        <span class="stat" id="st-def">D1</span>
-        <span class="stat gold" id="st-gold">G 0</span>
-      </div>
-      <button id="btn-settings" title="設定">⚙</button>
-    </header>
-
-    <div id="statusbar"></div>
-
-    <main id="main">
-      <canvas id="screen"></canvas>
-    </main>
-
-    <section id="log" aria-live="polite"></section>
-
-    <form id="cmdform" autocomplete="off">
-      <input id="cmdinput" type="text" inputmode="text"
-             placeholder="自由にコマンドを入力（例：祈る / 壁を調べる / 火球を唱える）" />
-      <button id="cmdsend" type="submit">実行</button>
-    </form>
-
-    <nav id="controls">
-      <div id="dpad">
-        <button class="dir" data-dx="-1" data-dy="-1">↖</button>
-        <button class="dir" data-dx="0"  data-dy="-1">↑</button>
-        <button class="dir" data-dx="1"  data-dy="-1">↗</button>
-        <button class="dir" data-dx="-1" data-dy="0">←</button>
-        <button class="dir wait" data-dx="0" data-dy="0">・</button>
-        <button class="dir" data-dx="1"  data-dy="0">→</button>
-        <button class="dir" data-dx="-1" data-dy="1">↙</button>
-        <button class="dir" data-dx="0"  data-dy="1">↓</button>
-        <button class="dir" data-dx="1"  data-dy="1">↘</button>
-      </div>
-      <div id="actions">
-        <button id="act-descend">降りる &gt;</button>
-        <button id="act-inv">持ち物</button>
-        <button id="act-rest">休む</button>
-      </div>
-    </nav>
-  </div>
-
-  <div id="loading" class="hidden">
-    <div class="loading-box"><span class="spinner"></span><span id="loading-text">この階を生成中…</span></div>
-  </div>
-
-  <div id="inventory" class="panel hidden">
-    <div class="panel-inner">
-      <h2>持ち物</h2>
-      <div id="inv-stats" class="note"></div>
-      <h3 class="inv-head">装備</h3>
-      <div id="inv-equip"></div>
-      <h3 class="inv-head">所持品</h3>
-      <div id="inv-list"></div>
-      <div class="panel-buttons">
-        <button id="inv-close">閉じる</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="settings" class="panel hidden">
-    <div class="panel-inner">
-      <h2>設定</h2>
-      <label>Anthropic APIキー
-        <input id="apikey" type="password" placeholder="sk-ant-..." />
-      </label>
-      <p class="note">
-        ※キーはこの端末のブラウザ（localStorage）にのみ保存され、Anthropic API へ直接送信されます。
-        共有端末では入力後に「キーを消去」してください。
-      </p>
-      <label>モデル
-        <select id="model">
-          <option value="claude-haiku-4-5">Haiku 4.5（高速・低コスト・推奨）</option>
-          <option value="claude-sonnet-4-6">Sonnet 4.6（バランス）</option>
-          <option value="claude-opus-4-8">Opus 4.8（高品質・低速）</option>
-        </select>
-      </label>
-      <div class="panel-buttons">
-        <button id="apikey-clear">キーを消去</button>
-        <button id="newgame">最初から</button>
-        <button id="btn-charselect">キャラクター選択</button>
-        <button id="settings-close">閉じる</button>
-      </div>
-      <p class="note small">
-        矢印キー / hjkl / yubn でも移動できます。隣のモンスターに向かって移動すると攻撃します。
-      </p>
-    </div>
-  </div>
-
-  <div id="charselect" class="panel hidden">
-    <div class="panel-inner">
-      <h2>キャラクター選択</h2>
-      <p class="note">成長や獲得アイテムは次のプレイに持ち越されません。</p>
-      <div id="char-list"></div>
-      <div class="panel-buttons">
-        <button id="char-new">新規作成</button>
-        <button id="char-close">閉じる</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="charedit" class="panel hidden">
-    <div class="panel-inner">
-      <h2 id="charedit-title">キャラクター作成</h2>
-      <div id="charedit-portrait-row">
-        <div id="charedit-portrait-box">
-          <img id="charedit-portrait" alt="" class="hidden" />
-          <span id="charedit-noimg">@</span>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101719" />
+    <meta
+      name="description"
+      content="言葉で道をつくるASCIIローグライク。敵の予告を読み、道具を工夫し、まだない世界を旅する。OpenAI・Anthropic対応。"
+    />
+    <title>RogueChat — まだない世界</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23101719'/%3E%3Ctext x='16' y='24' font-size='25' text-anchor='middle' fill='%23e6c98b' font-family='monospace'%3E@%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="RogueChat ホーム"
+          ><span class="brand-mark">@</span
+          ><span>RogueChat<small>まだない世界</small></span></a
+        >
+        <div class="header-actions">
+          <button id="mode-button" class="mode-pill">内蔵ルール</button
+          ><button id="help-button" class="quiet">遊び方</button
+          ><button id="new-button" class="quiet">新しい旅</button>
         </div>
-        <div id="charedit-imgbtns">
-          <input id="charedit-file" type="file" accept="image/*" hidden />
-          <button id="charedit-pick" type="button">外見画像を選択</button>
-          <button id="charedit-reroll" type="button">ランダム生成</button>
-          <p class="note">画像を選ぶとAIが名前・性格・能力を生成します（APIキーが必要）。画像なしはランダム生成。</p>
+      </header>
+      <main class="game-layout">
+        <section class="expedition" aria-label="冒険">
+          <div class="floor-heading">
+            <div>
+              <p class="eyebrow">THE UNWRITTEN / EXPEDITION</p>
+              <h1 id="floor-title">忘れられた水路</h1>
+            </div>
+            <span id="floor-badge">B1 / 5</span>
+          </div>
+          <p id="objective" class="objective">第五層の「星の核」を持ち帰る。</p>
+          <div class="vitals" aria-label="状態">
+            <div class="vital">
+              <div>
+                <span>生命 <b id="hp-text">—</b></span
+                ><span id="player-name">旅人</span>
+              </div>
+              <progress
+                id="hp-bar"
+                max="1"
+                value="1"
+                aria-label="生命"
+              ></progress>
+            </div>
+            <div class="vital focus">
+              <div>
+                <span>集中 <b id="focus-text">—</b></span
+                ><span id="level-text">Lv.1</span>
+              </div>
+              <progress
+                id="focus-bar"
+                max="1"
+                value="1"
+                aria-label="集中"
+              ></progress>
+            </div>
+          </div>
+          <div class="map-shell">
+            <div class="map-toolbar">
+              <span id="map-state"
+                ><i class="live-dot"></i> 時間は、あなたを待つ</span
+              ><span id="turn-text">TURN 000</span>
+            </div>
+            <div
+              id="map"
+              class="ascii-map"
+              role="group"
+              aria-label="ASCIIダンジョン。マスを選択して調べる"
+            ></div>
+            <div class="map-footer">
+              <span
+                ><b class="player-key">@</b> あなた
+                <b class="enemy-key">a</b> 敵
+                <b class="danger-key">·</b> 攻撃予告</span
+              ><span id="coordinates">—</span>
+            </div>
+          </div>
+          <div class="status-line">
+            <span id="combat-stats">—</span><span id="status-text"></span>
+          </div>
+          <div class="play-controls">
+            <div id="dpad" class="dpad" aria-label="移動">
+              <button data-dx="-1" data-dy="-1" aria-label="左上へ移動">
+                ↖</button
+              ><button data-dx="0" data-dy="-1" aria-label="上へ移動">↑</button
+              ><button data-dx="1" data-dy="-1" aria-label="右上へ移動">
+                ↗
+              </button>
+              <button data-dx="-1" data-dy="0" aria-label="左へ移動">←</button
+              ><button
+                data-dx="0"
+                data-dy="0"
+                aria-label="1ターン待つ"
+                class="wait"
+              >
+                ·</button
+              ><button data-dx="1" data-dy="0" aria-label="右へ移動">→</button>
+              <button data-dx="-1" data-dy="1" aria-label="左下へ移動">
+                ↙</button
+              ><button data-dx="0" data-dy="1" aria-label="下へ移動">↓</button
+              ><button data-dx="1" data-dy="1" aria-label="右下へ移動">
+                ↘
+              </button>
+            </div>
+            <div class="action-buttons">
+              <button id="interact-button" class="primary">
+                先へ進む <span>&gt;</span></button
+              ><button id="inventory-button">持ち物 <kbd>I</kbd></button
+              ><button id="rest-button">
+                野営 <span id="supply-count">3回</span></button
+              ><button id="guard-button">身を守る <kbd>G</kbd></button>
+            </div>
+          </div>
+          <section class="imagination" aria-label="自由行動">
+            <div class="section-heading">
+              <h2>世界に、何をする？</h2>
+              <span id="action-source">内蔵アクション</span>
+            </div>
+            <form id="command-form">
+              <label for="command-input" class="sr-only">自由行動</label
+              ><textarea
+                id="command-input"
+                rows="2"
+                maxlength="500"
+                placeholder="例：影をロープに編んで、射手の弓を絡め取る"
+              ></textarea
+              ><button id="propose-button" type="submit" class="primary">
+                提案を見る <span>↗</span>
+              </button>
+            </form>
+            <div id="suggestions" class="suggestions">
+              <button data-command="敵を足止めする">敵を足止めする</button
+              ><button data-command="敵を説得する">敵を説得する</button
+              ><button data-command="道を開く">道を開く</button
+              ><button data-command="道具を編む">道具を編む</button
+              ><button data-command="傷を癒す">傷を癒す</button
+              ><button data-command="火花を放つ">火花を放つ</button
+              ><button data-command="状態を治す">状態を治す</button>
+            </div>
+            <p class="hint">
+              提案・調査・持ち物の確認は無料。実行すると1ターン進みます。
+            </p>
+            <div id="request-status" class="request-status" hidden>
+              <span id="request-text">言葉から可能性を探しています…</span
+              ><button id="cancel-request" class="quiet">中止</button>
+            </div>
+          </section>
+        </section>
+        <aside class="journal" aria-label="観察と記録">
+          <section class="threat-panel">
+            <div class="section-heading">
+              <h2>次の一手を読む</h2>
+              <span class="eyebrow">INTENT</span>
+            </div>
+            <div id="threat-list"></div>
+          </section>
+          <section class="inspection">
+            <div class="section-heading">
+              <h2>観察</h2>
+              <span>ターン消費なし</span>
+            </div>
+            <h3 id="inspect-title">@ 旅人</h3>
+            <p id="inspect-detail">
+              地図の記号を選ぶと、敵の特性や地形の使い道が分かります。
+            </p>
+            <p id="selected-coordinate" class="hint"></p>
+          </section>
+          <section class="chronicle">
+            <div class="section-heading">
+              <h2>旅の記録</h2>
+              <button id="memory-button" class="quiet">世界の記憶</button>
+            </div>
+            <div
+              id="log"
+              role="log"
+              aria-live="polite"
+              aria-relevant="additions"
+            ></div>
+          </section>
+          <div class="journal-footer">
+            <span id="save-status">自動セーブ</span><span id="seed-text"></span>
+          </div>
+        </aside>
+      </main>
+      <footer class="site-footer">
+        <span>記号の向こうには、あなたにしか見えない世界がある。</span
+        ><span>ROGUECHAT / 02</span>
+      </footer>
+    </div>
+
+    <dialog
+      id="start-dialog"
+      class="start-dialog"
+      aria-labelledby="start-title"
+    >
+      <div class="dialog-body">
+        <p class="eyebrow">ROGUECHAT / A WORLD YET TO BE</p>
+        <pre class="hero-ascii" aria-hidden="true">
+        .       *       .
+    +---------+     .
+    | . . @ . |------+
+    | . ~ ~ . +  ?   |
+    +----+----+ . . &gt; |
+         | . . . *   |
+         +-----------+</pre
+        >
+        <h2 id="start-title">そこにない道を、<br />言葉で。</h2>
+        <p class="intro">
+          敵の一手を読み、危機を工夫で越える。<br />第五層に眠る星を、あなたの方法で持ち帰ろう。
+        </p>
+        <div id="resume-box" class="resume-box" hidden>
+          <p id="resume-description"></p>
+          <button id="resume-button" class="primary">旅を続ける</button>
+        </div>
+        <form id="start-form">
+          <label
+            >旅人の名前<input
+              id="name-input"
+              maxlength="16"
+              value="名もなき旅人"
+              autocomplete="off" /></label
+          ><label
+            >どんな旅人？<input
+              id="personality-input"
+              maxlength="160"
+              value="危機でも工夫を忘れない。"
+              autocomplete="off"
+          /></label>
+          <fieldset>
+            <legend>旅の始まり</legend>
+            <div id="background-options" class="background-options"></div>
+          </fieldset>
+          <label
+            >世界の種 <span class="hint">同じ数値で同じ地形</span
+            ><input
+              id="seed-input"
+              type="number"
+              min="1"
+              max="4294967295"
+              placeholder="空欄でランダム"
+          /></label>
+          <p id="restart-warning" class="hint" hidden>
+            新しい旅を始めると、進行中のセーブを置き換えます。
+          </p>
+          <button type="submit" class="primary wide">
+            新しい世界へ <span>→</span>
+          </button>
+        </form>
+        <div class="start-links">
+          <button id="start-settings" class="quiet">
+            APIを接続して、発想をもっと自由に</button
+          ><button id="start-close" class="quiet" hidden>冒険に戻る</button>
         </div>
       </div>
-      <label>名前
-        <input id="charedit-name" maxlength="12" placeholder="12文字以内" />
-      </label>
-      <label>性格
-        <input id="charedit-personality" maxlength="60" placeholder="60文字以内" />
-      </label>
-      <p class="note" id="charedit-stats"></p>
-      <div class="panel-buttons">
-        <button id="charedit-save">保存</button>
-        <button id="charedit-cancel">キャンセル</button>
-      </div>
-    </div>
-  </div>
+    </dialog>
 
-  <script type="module" src="./js/main.js"></script>
-</body>
+    <dialog id="proposal-dialog" aria-labelledby="proposal-title">
+      <div class="dialog-body">
+        <p class="eyebrow">IMAGINE → CONSIDER → ACT</p>
+        <h2 id="proposal-title">行動の提案</h2>
+        <p id="proposal-reason"></p>
+        <div class="proposal-metrics">
+          <div><span>成功率</span><strong id="proposal-chance"></strong></div>
+          <div><span>集中</span><strong id="proposal-cost"></strong></div>
+          <div><span>時間</span><strong>1ターン</strong></div>
+        </div>
+        <p id="proposal-roll" class="hint"></p>
+        <h3>成功すると</h3>
+        <ul id="proposal-effects"></ul>
+        <p id="proposal-materials"></p>
+        <div class="risk-box">
+          <h3>失敗・反撃のリスク</h3>
+          <p id="proposal-risk"></p>
+        </div>
+        <p id="proposal-error" role="alert" class="error"></p>
+        <div class="dialog-actions">
+          <button id="proposal-cancel">考え直す</button
+          ><button id="proposal-execute" class="primary">この一手を実行</button>
+        </div>
+      </div>
+    </dialog>
+    <dialog id="inventory-dialog" aria-labelledby="inventory-title">
+      <div class="dialog-body">
+        <div class="section-heading">
+          <h2 id="inventory-title">旅の持ち物</h2>
+          <button data-close="inventory-dialog" aria-label="持ち物を閉じる">
+            ×
+          </button>
+        </div>
+        <p id="equipment-text"></p>
+        <p class="hint">
+          使用・装備・床に置くと1ターン進みます。道具の所持効果は自動で働きます。
+        </p>
+        <div id="inventory-list"></div>
+      </div>
+    </dialog>
+    <dialog id="settings-dialog" aria-labelledby="settings-title">
+      <div class="dialog-body">
+        <div class="section-heading">
+          <h2 id="settings-title">言葉と世界をつなぐ</h2>
+          <button data-close="settings-dialog" aria-label="API設定を閉じる">
+            ×
+          </button>
+        </div>
+        <p>
+          OpenAIとAnthropicに対応。接続すると、あなたの自由な文章から行動を提案します。移動や通常戦闘はAPIを使いません。
+        </p>
+        <form id="settings-form">
+          <label
+            >プロバイダー<select id="provider-input">
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+            </select></label
+          ><label
+            >APIキー<input
+              id="key-input"
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="sk-…" /></label
+          ><label
+            >モデルID<input
+              id="model-input"
+              autocomplete="off"
+              spellcheck="false"
+              required /></label
+          ><label class="checkbox-label"
+            ><input
+              id="remember-key"
+              type="checkbox"
+            />この端末にAPIキーを保存する</label
+          >
+          <p class="hint">
+            キーは選んだ提供元へブラウザから直接送信します。API利用料が発生します。既定ではタブを閉じるまで保持。保存を選ぶとこのブラウザに残ります。共有端末では保存せず、終了時にキーを消去してください。
+          </p>
+          <p id="settings-error" class="error" role="alert"></p>
+          <div class="dialog-actions">
+            <button id="clear-keys" type="button">全キーを消去</button
+            ><button type="submit" class="primary">設定を保存</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+    <dialog id="help-dialog" aria-labelledby="help-title">
+      <div class="dialog-body">
+        <div class="section-heading">
+          <h2 id="help-title">一手を考えるために</h2>
+          <button data-close="help-dialog" aria-label="遊び方を閉じる">
+            ×
+          </button>
+        </div>
+        <p>
+          第五層の守護者を倒すか和解し、<code>0</code>の上で星を持ち帰るとクリア。死亡するとその冒険は終了します。
+        </p>
+        <h3>時間は、あなたを待つ</h3>
+        <p>
+          移動は矢印 / WASD /
+          HJKL。斜めはYUBN。隣の敵へ移動すると通常攻撃。<kbd>.</kbd>で待機、<kbd>I</kbd>で持ち物、<kbd>R</kbd>で野営、<kbd>G</kbd>で護りの提案、<kbd>&gt;</kbd>か<kbd>E</kbd>で階段や道具を操作、<kbd>/</kbd>で自由入力。Enterで提案、Shift＋Enterで改行。
+        </p>
+        <h3>予告を読む</h3>
+        <p>
+          赤い背景は次の敵の攻撃マス。予告後の1ターンで移動すれば避けられます。大振りは十字の範囲。敵は攻撃後に1ターン休みます。閉じた扉を開けるのにも1ターン必要です。
+        </p>
+        <h3>工夫を世界に残す</h3>
+        <p>
+          自由行動は提案を確認してから実行。d6＋能力＋道具＋工夫で判定し、成功すると地形・敵・身体に変化が残ります。失敗しても集中・材料を失い、敵が行動します。交渉の経験値は戦闘と同じ。創作した道具は拾って持ち歩けます。複数の道具による加点は最大＋1、近くの創作物は別に＋1。
+        </p>
+        <h3>回復を使い切らない</h3>
+        <p>
+          野営は敵が見えない場所で、糧食1つを消費してHP＋12、集中＋7と状態異常を回復。<code>&amp;</code>の野営地は各階1回無料。集中は4ターンごとに1回復。回復薬・煙・帰還の巻物でピンチを立て直そう。
+        </p>
+        <h3>地図の記号</h3>
+        <p class="legend">
+          <code>@</code> あなた　<code>#</code> 壁　<code>+</code> 扉　<code
+            >&gt;</code
+          >
+          階段　<code>0</code> 星<br /><code>~</code> 水　<code>"</code>
+          糸　<code>=</code> 油　<code>^</code> 罠　<code>*</code> 火<br /><code
+            >!</code
+          >
+          薬　<code>?</code> 巻物　<code>)</code> 剣　<code>[</code> 鎧　<code
+            >&amp;</code
+          >
+          道具/野営
+        </p>
+        <p>
+          各行動後に自動セーブ。再読込で続行できます。旧版のセーブは引き継ぎません。
+        </p>
+      </div>
+    </dialog>
+    <dialog id="memory-dialog" aria-labelledby="memory-title">
+      <div class="dialog-body">
+        <div class="section-heading">
+          <h2 id="memory-title">世界が覚えていること</h2>
+          <button data-close="memory-dialog" aria-label="世界の記憶を閉じる">
+            ×
+          </button>
+        </div>
+        <p class="hint">
+          成功した自由行動の記憶は、次の提案にも引き継がれます。最大20件。
+        </p>
+        <div id="memory-list"></div>
+      </div>
+    </dialog>
+    <dialog id="ending-dialog" aria-labelledby="ending-title">
+      <div class="dialog-body">
+        <p class="eyebrow" id="ending-label">THE END</p>
+        <pre class="ending-ascii" id="ending-ascii" aria-hidden="true"></pre>
+        <h2 id="ending-title"></h2>
+        <p id="ending-description"></p>
+        <p id="ending-stats" class="hint"></p>
+        <div class="dialog-actions">
+          <button data-close="ending-dialog">記録を見る</button
+          ><button id="ending-new" class="primary">次の物語へ</button>
+        </div>
+      </div>
+    </dialog>
+    <div id="toast" role="status" hidden></div>
+    <noscript>RogueChatを遊ぶにはJavaScriptを有効にしてください。</noscript>
+    <script type="module" src="./js/main.js"></script>
+  </body>
 </html>

@@ -1,834 +1,1090 @@
 import {
-  TILE, MAP_W, MAP_H, generateDungeon, isWalkable, LAYOUTS,
-} from './dungeon.js';
-import {
-  makeItem, makeItemFromDef, itemName, isEquippable,
-  builtinFloorItemDefs, resolveByName,
-} from './items.js';
-import { hasApiKey, generateFloor, adjudicate } from './llm.js';
+  generateDungeon,
+  distance,
+  lineOfSight,
+  TILES,
+  WIDTH,
+  HEIGHT,
+  LAST_FLOOR,
+} from "./dungeon.js";
+import { makeItem, BACKGROUNDS, SKILLS, ITEMS } from "./items.js";
 
-// ---- 状態異常（NetHack 参考） ----
-export const STATUS_INFO = {
-  '毒':   { dot: 2, color: '#7cd97c' },
-  '炎上': { dot: 3, color: '#ff8a4c' },
-  '出血': { dot: 2, color: '#e06c75' },
-  '麻痺': { skip: true, color: '#d9d97c' },
-  '睡眠': { skip: true, color: '#9aa0ff' },
-  '凍結': { skip: true, color: '#7cd0ff' },
-  '石化': { skip: true, color: '#bbbbbb' },
-  '混乱': { confuse: true, color: '#d97cd9' },
-  '朦朧': { confuse: true, color: '#d9b07c' },
-  '盲目': { blind: true, color: '#888888' },
-  '恐怖': { flee: true, color: '#c0c0ff' },
-};
-
-// ---- フォールバック用モンスターカタログ（NetHack 参考） ----
-const MONSTER_CATALOG = [
-  { sym: 'r', name: 'ドブネズミ',   hp: 4,  atk: 2,  def: 0, xp: 2,  color: '#a98', ability: '',     depth: 1 },
-  { sym: 'b', name: 'コウモリ',     hp: 5,  atk: 3,  def: 0, xp: 3,  color: '#9af', ability: '混乱', depth: 1 },
-  { sym: 'x', name: 'グリッドバグ', hp: 3,  atk: 1,  def: 0, xp: 1,  color: '#c6c', ability: '',     depth: 1 },
-  { sym: 'd', name: '野犬',         hp: 6,  atk: 3,  def: 0, xp: 3,  color: '#ca8', ability: '',     depth: 1 },
-  { sym: 'k', name: 'コボルト',     hp: 8,  atk: 4,  def: 1, xp: 5,  color: '#7c5', ability: '',     depth: 2 },
-  { sym: 'G', name: 'ノーム',       hp: 8,  atk: 4,  def: 1, xp: 5,  color: '#bba', ability: '',     depth: 2 },
-  { sym: 'g', name: 'ゴブリン',     hp: 10, atk: 5,  def: 1, xp: 7,  color: '#5b6', ability: '',     depth: 2 },
-  { sym: 'F', name: '黄色カビ',     hp: 8,  atk: 3,  def: 0, xp: 4,  color: '#dd5', ability: '毒',   depth: 2 },
-  { sym: 'e', name: '浮遊する目',   hp: 9,  atk: 0,  def: 1, xp: 6,  color: '#6cf', ability: '麻痺', depth: 3 },
-  { sym: 'o', name: 'オーク',       hp: 16, atk: 7,  def: 2, xp: 12, color: '#3a4', ability: '',     depth: 4 },
-  { sym: 'S', name: '大蜘蛛',       hp: 14, atk: 6,  def: 1, xp: 11, color: '#a55', ability: '毒',   depth: 4 },
-  { sym: 'n', name: 'ニンフ',       hp: 12, atk: 4,  def: 1, xp: 9,  color: '#f9c', ability: '睡眠', depth: 4 },
-  { sym: 'Z', name: 'ゾンビ',       hp: 14, atk: 6,  def: 1, xp: 10, color: '#9a6', ability: '',     depth: 4 },
-  { sym: 's', name: 'スケルトン',   hp: 16, atk: 8,  def: 3, xp: 14, color: '#ddd', ability: '',     depth: 5 },
-  { sym: 'N', name: 'ナーガ',       hp: 20, atk: 8,  def: 2, xp: 18, color: '#6c9', ability: '毒',   depth: 6 },
-  { sym: 'O', name: 'オーガ',       hp: 24, atk: 10, def: 2, xp: 20, color: '#9a5', ability: '',     depth: 6 },
-  { sym: 'T', name: 'トロル',       hp: 30, atk: 11, def: 3, xp: 26, color: '#696', ability: '出血', depth: 7 },
-  { sym: 'c', name: 'コカトリス',   hp: 18, atk: 6,  def: 2, xp: 20, color: '#cb7', ability: '石化', depth: 7 },
-  { sym: 'L', name: 'リッチ',       hp: 26, atk: 10, def: 4, xp: 30, color: '#bcf', ability: '麻痺', depth: 9 },
-  { sym: 'D', name: 'ドラゴン',     hp: 44, atk: 15, def: 5, xp: 45, color: '#e55', ability: '炎上', depth: 9 },
+export const SAVE_KEY = "roguechat_v2_run";
+const clamp = (n, lo, hi) =>
+  Math.min(hi, Math.max(lo, Math.round(Number(n) || 0)));
+const clean = (value, size = 200) =>
+  typeof value === "string" ? value.slice(0, size) : "";
+const SAVE_FIELDS = [
+  "rng",
+  "seed",
+  "serial",
+  "turn",
+  "revision",
+  "floor",
+  "ended",
+  "messages",
+  "memory",
+  "background",
+  "player",
+  "dungeon",
+  "seen",
+  "knownTerrain",
 ];
-
-const GLYPH_COLOR = {
-  '#': '#3b454e', '.': '#4a5560', '+': '#b5814a', '>': '#5fd1e0', '@': '#ffe27a', '$': '#e5c07b',
+const EFFECTS = new Set([
+  "damage",
+  "stun",
+  "peace",
+  "heal",
+  "cleanse",
+  "ward",
+  "move",
+  "terrain",
+  "create",
+  "reveal",
+]);
+const TERRAIN = new Set([".", "~", '"', "=", "*"]);
+const COST = {
+  damage: 1,
+  stun: 1,
+  peace: 2,
+  heal: 2,
+  cleanse: 1,
+  ward: 1,
+  move: 1,
+  terrain: 1,
+  create: 2,
+  reveal: 1,
 };
-const TRAP_NAME = { dart: '矢の罠', poison: '毒矢の罠', teleport: 'テレポートの罠', pit: '落とし穴' };
-
-function randint(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
-function clampInt(v, lo, hi) { v = Math.round(Number(v) || 0); return Math.max(lo, Math.min(hi, v)); }
-function dist(a, b) { return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)); }
-function validHex(c) { return typeof c === 'string' && /^#?[0-9a-fA-F]{6}$/.test(c); }
-function normHex(c, fb) { if (!validHex(c)) return fb; return c[0] === '#' ? c : '#' + c; }
-function oneChar(s, fb) { return (typeof s === 'string' && s.trim()) ? s.trim()[0] : fb; }
-function dirName(dx, dy) {
-  const ns = dy < 0 ? '北' : dy > 0 ? '南' : '';
-  const ew = dx < 0 ? '西' : dx > 0 ? '東' : '';
-  return (ns + ew) || '隣';
-}
-
+const DIFFICULTY = {
+  damage: 2,
+  stun: 2,
+  peace: 3,
+  heal: 2,
+  cleanse: 1,
+  ward: 2,
+  move: 2,
+  terrain: 2,
+  create: 3,
+  reveal: 1,
+};
 export class Game {
-  constructor(canvas, log) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
-    this.log = log;
-    this.cell = 22;
-    this.player = null;
-  }
-
-  // character の素体パラメータから毎回初期化する。
-  // 成長・アイテムはプレイ終了時に character へ書き戻さない（非持ち越し）。
-  async newGame(character) {
-    this.nextId = 1;
-    this.character = character || null;
-    const base = character || { hp: 20, mp: 5, atk: 5, def: 1 };
+  constructor({
+    seed = Date.now(),
+    background = "wanderer",
+    name = "名もなき旅人",
+    personality = "危機でも工夫を忘れない。",
+  } = {}) {
+    this.rng = Number(seed) >>> 0 || 1;
+    this.seed = this.rng;
+    this.serial = 0;
+    this.turn = 0;
+    this.revision = 0;
+    this.floor = 1;
+    this.ended = null;
+    this.messages = [];
+    this.memory = [];
+    this.pending = null;
+    this.background = Object.hasOwn(BACKGROUNDS, background)
+      ? background
+      : "wanderer";
+    const b = BACKGROUNDS[this.background];
     this.player = {
-      x: 0, y: 0,
-      hp: base.hp, maxHp: base.hp, mp: base.mp, maxMp: base.mp,
-      atk: base.atk, def: base.def,
-      level: 1, xp: 0, xpNext: 20, gold: 0,
-      inventory: [],
-      equipment: { weapon: null, armor: null, shield: null },
-      statuses: {},
+      name: clean(name, 16).trim() || "名もなき旅人",
+      personality: clean(personality, 160),
+      hp: b.hp,
+      maxHp: b.hp,
+      focus: b.focus,
+      maxFocus: b.focus,
+      attack: b.attack,
+      defense: b.defense,
+      skills: { ...b.skills },
+      level: 1,
+      xp: 0,
+      supplies: 3,
+      ward: 0,
+      poison: 0,
+      burning: 0,
+      stuck: 0,
+      equipment: { weapon: null, armor: null },
+      inventory: b.items.map((key) => makeItem(key, this.id())),
     };
-    this.player.equipment.weapon = makeItem('dagger');
-    this.player.equipment.armor = makeItem('leather_armor');
-    this.player.inventory.push(makeItem('potion_healing'));
-    this.player.inventory.push(makeItem('potion_healing'));
-
-    this.floor = 0;
-    this.dead = false;
-    this.clearLog();
-    if (character) this.message(`${character.name} はダンジョンに足を踏み入れた。`, 'sys');
-    else this.message('RogueChat の世界へようこそ。', 'sys');
-    this.message('各階の構成はAIが生成する。マップをタップするとそのマスを調べられる。', 'sys');
-    await this.goToFloor(1);
+    this.loadFloor();
+    this.log(
+      "第五層の星の核を持ち帰ろう。地図を見る、敵を調べる、考える間は時間が進まない。",
+      "story",
+    );
   }
-
-  // ---- 実効ステータス ----
-  atkTotal() {
-    const w = this.player.equipment.weapon;
-    return this.player.atk + (w ? w.bonus + (w.ench || 0) : 0);
+  id() {
+    return `id-${++this.serial}`;
   }
-  defTotal() {
-    const e = this.player.equipment;
-    let d = this.player.def;
-    if (e.armor) d += e.armor.bonus + (e.armor.ench || 0);
-    if (e.shield) d += e.shield.bonus + (e.shield.ench || 0);
-    return d;
+  random() {
+    let t = (this.rng += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    this.rng >>>= 0;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
-
-  // ---- 階層移動・生成 ----
-  async goToFloor(n) {
-    this.floor = n;
-    this.roster = await this.makeRoster();
-    const theme = this.roster.theme || '未知の階層';
-    this.message(`地下${n}階 【${theme}】 へ降りた。`, 'gm');
-    this.buildFloor();
-    this.render();
+  log(text, kind = "info") {
+    this.messages.push({ text, kind, turn: this.turn });
+    this.messages = this.messages.slice(-70);
   }
-
-  async makeRoster() {
-    if (hasApiKey()) {
-      try {
-        const r = await generateFloor({ floor: this.floor, level: this.player.level });
-        return this.sanitizeRoster(r);
-      } catch (e) {
-        this.message('階層のAI生成に失敗。既定の構成で進む。', 'sys');
-      }
-    }
-    return this.fallbackRoster();
+  loadFloor() {
+    this.dungeon = generateDungeon(
+      this.floor,
+      () => this.random(),
+      () => this.id(),
+    );
+    Object.assign(this.player, this.dungeon.start);
+    this.seen = Array.from({ length: HEIGHT }, () => Array(WIDTH).fill(false));
+    this.knownTerrain = this.dungeon.grid.map((row) => row.map(() => "#"));
+    this.updateVision();
+    this.log(
+      `B${this.floor} / ${this.dungeon.theme.name} — ${this.dungeon.theme.flavor}`,
+      "story",
+    );
   }
-
-  fallbackRoster() {
-    let monsters = MONSTER_CATALOG.filter((m) => m.depth <= this.floor);
-    if (monsters.length === 0) monsters = MONSTER_CATALOG.slice(0, 4);
-    return {
-      theme: '未知の階層',
-      layout: LAYOUTS[randint(0, LAYOUTS.length - 1)],
-      monsters: monsters.map((m) => ({ ...m })),
-      items: builtinFloorItemDefs(this.floor),
-    };
+  tile(x, y) {
+    return this.dungeon.grid[y]?.[x] || "#";
   }
-
-  sanitizeRoster(r) {
-    const f = this.floor;
-    let monsters = (Array.isArray(r.monsters) ? r.monsters : [])
-      .filter((m) => m && m.name)
-      .map((m) => ({
-        name: String(m.name).slice(0, 16),
-        sym: oneChar(m.symbol, 'm'),
-        color: normHex(m.color, '#ccc'),
-        hp: clampInt(m.hp, 1, f * 8 + 12),
-        atk: clampInt(m.atk, 0, f * 2 + 4),
-        def: clampInt(m.def, 0, f + 3),
-        xp: clampInt(m.xp, 1, f * 8 + 4),
-        ability: STATUS_INFO[m.ability] ? m.ability : '',
-      }));
-    const validKind = new Set(['weapon', 'armor', 'shield', 'potion', 'scroll']);
-    let items = (Array.isArray(r.items) ? r.items : [])
-      .filter((it) => it && it.name && validKind.has(it.kind))
-      .map((it) => ({
-        id: 'gen', name: String(it.name).slice(0, 20), kind: it.kind,
-        sym: oneChar(it.symbol, it.kind === 'potion' ? '!' : it.kind === 'scroll' ? '?' : ')'),
-        color: normHex(it.color, '#aaa'),
-        bonus: ['weapon', 'armor', 'shield'].includes(it.kind) ? clampInt(it.bonus, 1, 8) : 0,
-        hint: String(it.hint || '').slice(0, 80),
-      }));
-
-    if (monsters.length === 0) monsters = this.fallbackRoster().monsters;
-    if (items.length === 0) items = builtinFloorItemDefs(f);
-
-    return {
-      theme: String(r.theme || '未知の階層').slice(0, 24),
-      layout: LAYOUTS.includes(r.layout) ? r.layout : undefined,
-      monsters, items,
-    };
+  inside(x, y) {
+    return (
+      Number.isInteger(x) &&
+      Number.isInteger(y) &&
+      x > 0 &&
+      y > 0 &&
+      x < WIDTH - 1 &&
+      y < HEIGHT - 1
+    );
   }
-
-  buildFloor() {
-    const { grid, start, traps } = generateDungeon(this.floor, this.roster.layout);
-    this.grid = grid;
-    this.traps = traps;
-    this.seen = Array.from({ length: MAP_H }, () => new Array(MAP_W).fill(false));
-    this.visible = Array.from({ length: MAP_H }, () => new Array(MAP_W).fill(false));
-    this.player.x = start.x;
-    this.player.y = start.y;
-    this.items = [];
-    this.monsters = [];
-    this.spawnItems();
-    this.spawnMonsters();
-    this.computeFOV();
+  walkable(x, y) {
+    return this.inside(x, y) && !["#", "+"].includes(this.tile(x, y));
   }
-
-  isOccupied(x, y) {
-    if (x === this.player.x && y === this.player.y) return true;
-    if (this.monsters.some((m) => m.x === x && m.y === y)) return true;
-    if (this.items.some((it) => it.x === x && it.y === y)) return true;
-    return false;
+  enemyAt(x, y) {
+    return this.dungeon.enemies.find((e) => e.hp > 0 && e.x === x && e.y === y);
   }
-
-  randomEmptyCell(minFromStart = 0) {
-    for (let t = 0; t < 300; t++) {
-      const x = randint(1, MAP_W - 2), y = randint(1, MAP_H - 2);
-      if (this.grid[y][x] !== TILE.FLOOR) continue;
-      if (this.isOccupied(x, y)) continue;
-      if (minFromStart && dist({ x, y }, this.player) < minFromStart) continue;
-      return { x, y };
-    }
-    return null;
+  rememberedTile(x, y) {
+    return this.visible[y]?.[x]
+      ? this.tile(x, y)
+      : this.knownTerrain[y]?.[x] || "#";
   }
-
-  spawnItems() {
-    const pool = this.roster.items.length ? this.roster.items : builtinFloorItemDefs(this.floor);
-    const count = randint(3, 5);
-    for (let i = 0; i < count; i++) {
-      const c = this.randomEmptyCell();
-      if (!c) break;
-      if (Math.random() < 0.35) {
-        this.items.push({ x: c.x, y: c.y, sym: '$', color: GLYPH_COLOR['$'], gold: randint(5, 20 + this.floor * 3) });
-      } else {
-        const def = pool[randint(0, pool.length - 1)];
-        const inst = makeItemFromDef(def);
-        this.items.push({ x: c.x, y: c.y, sym: inst.sym, color: inst.color, item: inst });
-      }
-    }
-  }
-
-  spawnMonsters() {
-    const pool = this.roster.monsters.length ? this.roster.monsters : MONSTER_CATALOG.slice(0, 4);
-    const count = randint(5, 8);
-    for (let i = 0; i < count; i++) {
-      const c = this.randomEmptyCell(5);
-      if (!c) break;
-      const def = pool[randint(0, pool.length - 1)];
-      this.monsters.push({
-        id: this.nextId++,
-        name: def.name, sym: def.sym, color: def.color,
-        hp: def.hp, maxHp: def.hp, atk: def.atk, def: def.def, xp: def.xp,
-        ability: def.ability || '',
-        x: c.x, y: c.y, statuses: {},
-      });
-    }
-  }
-
-  // ---- 状態異常ヘルパ ----
-  applyStatus(ent, name, turns) {
-    if (!name) return;
-    const t = clampInt(turns, 1, 12);
-    ent.statuses[name] = Math.max(ent.statuses[name] || 0, t);
-  }
-  hasStatus(ent, name) { return (ent.statuses[name] || 0) > 0; }
-  isIncapacitated(ent) { return Object.keys(ent.statuses).some((n) => STATUS_INFO[n]?.skip); }
-  isConfused(ent) { return Object.keys(ent.statuses).some((n) => STATUS_INFO[n]?.confuse); }
-  isBlind(ent) { return this.hasStatus(ent, '盲目'); }
-  incapName(ent) {
-    const n = Object.keys(ent.statuses).find((s) => STATUS_INFO[s]?.skip);
-    return n || '';
-  }
-
-  tickEntity(ent, isPlayer) {
-    for (const name of Object.keys(ent.statuses)) {
-      const info = STATUS_INFO[name];
-      if (info?.dot) {
-        ent.hp -= info.dot;
-        if (isPlayer) this.message(`${name}で ${info.dot} のダメージ。`, 'bad');
-      }
-      ent.statuses[name] -= 1;
-      if (ent.statuses[name] <= 0) {
-        delete ent.statuses[name];
-        if (isPlayer) this.message(`${name}が治まった。`, 'sys');
-      }
-    }
-    if (isPlayer && ent.hp <= 0) this.killPlayer();
-  }
-
-  // ---- 視界 ----
-  computeFOV() {
-    const radius = this.isBlind(this.player) ? 1 : 7;
-    for (let y = 0; y < MAP_H; y++) this.visible[y].fill(false);
-    const px = this.player.x, py = this.player.y;
-    for (let y = py - radius; y <= py + radius; y++) {
-      for (let x = px - radius; x <= px + radius; x++) {
-        if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) continue;
-        if (dist({ x: px, y: py }, { x, y }) > radius) continue;
-        if (this.lineOfSight(px, py, x, y)) {
+  updateVision() {
+    this.visible = Array.from({ length: HEIGHT }, () =>
+      Array(WIDTH).fill(false),
+    );
+    for (let y = 0; y < HEIGHT; y++)
+      for (let x = 0; x < WIDTH; x++) {
+        if (
+          distance(this.player, { x, y }) <= 7 &&
+          lineOfSight(this.dungeon.grid, this.player, { x, y })
+        ) {
           this.visible[y][x] = true;
           this.seen[y][x] = true;
+          this.knownTerrain[y][x] = this.tile(x, y);
         }
       }
-    }
   }
-
-  lineOfSight(x0, y0, x1, y1) {
-    let dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
-    let sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-    let err = dx - dy, x = x0, y = y0;
-    while (true) {
-      if (x === x1 && y === y1) return true;
-      if (!(x === x0 && y === y0) && this.grid[y][x] === TILE.WALL) return false;
-      const e2 = 2 * err;
-      if (e2 > -dy) { err -= dy; x += sx; }
-      if (e2 < dx) { err += dx; y += sy; }
-    }
+  visibleEnemies() {
+    return this.dungeon.enemies.filter(
+      (e) => e.hp > 0 && this.visible[e.y]?.[e.x],
+    );
   }
-
-  // ---- 描画 ----
-  resize() {
-    if (!this.player) return;
-    const main = this.canvas.parentElement;
-    const w = main.clientWidth, h = main.clientHeight;
-    const viewCols = Math.min(MAP_W, Math.floor(w / 16));
-    const viewRows = Math.min(MAP_H, Math.floor(h / 16));
-    this.cell = Math.max(12, Math.min(Math.floor(w / viewCols), Math.floor(h / viewRows), 30));
-    this.viewCols = Math.max(8, Math.floor(w / this.cell));
-    this.viewRows = Math.max(8, Math.floor(h / this.cell));
-    const dpr = window.devicePixelRatio || 1;
-    this.canvas.width = this.viewCols * this.cell * dpr;
-    this.canvas.height = this.viewRows * this.cell * dpr;
-    this.canvas.style.width = this.viewCols * this.cell + 'px';
-    this.canvas.style.height = this.viewRows * this.cell + 'px';
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.render();
+  threats() {
+    return this.visibleEnemies()
+      .filter((e) => !e.friendly && e.intent && e.stunned === 0)
+      .map((e) => ({
+        id: e.id,
+        name: e.name,
+        damage: Math.max(1, e.attack - this.defense()),
+        tiles: e.intent.tiles,
+        label: e.intent.label,
+      }));
   }
-
-  render() {
-    if (!this.player) return;
-    if (!this.viewCols) { this.resize(); return; }
-    const ctx = this.ctx, c = this.cell;
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.font = `${Math.floor(c * 0.82)}px ui-monospace, monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const ox = this.player.x - Math.floor(this.viewCols / 2);
-    const oy = this.player.y - Math.floor(this.viewRows / 2);
-
-    for (let row = 0; row < this.viewRows; row++) {
-      for (let col = 0; col < this.viewCols; col++) {
-        const mx = ox + col, my = oy + row;
-        if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) continue;
-        if (!this.seen[my][mx]) continue;
-        const vis = this.visible[my][mx];
-
-        let glyph = this.grid[my][mx];
-        let color = GLYPH_COLOR[glyph] || '#4a5560';
-
-        const trap = this.traps.find((t) => t.x === mx && t.y === my && t.known);
-        if (trap && glyph === TILE.FLOOR) { glyph = '^'; color = '#e0617a'; }
-
-        if (vis) {
-          const item = this.items.find((it) => it.x === mx && it.y === my);
-          if (item) { glyph = item.sym; color = item.color; }
-          const mon = this.monsters.find((m) => m.x === mx && m.y === my);
-          if (mon) {
-            glyph = mon.sym; color = mon.color;
-            if (this.isIncapacitated(mon)) color = '#888';
-          }
-          if (mx === this.player.x && my === this.player.y) { glyph = '@'; color = GLYPH_COLOR['@']; }
-        } else {
-          color = '#1c232a';
-        }
-        ctx.fillStyle = color;
-        ctx.fillText(glyph, col * c + c / 2, row * c + c / 2);
-      }
-    }
+  attack() {
+    return this.player.attack + (this.player.equipment.weapon?.power || 0);
   }
-
-  // ---- ログ ----
-  clearLog() { this.log.innerHTML = ''; }
-  message(text, cls = '') {
-    const p = document.createElement('p');
-    p.className = 'line ' + cls;
-    p.textContent = text;
-    this.log.appendChild(p);
-    this.log.scrollTop = this.log.scrollHeight;
-    while (this.log.children.length > 200) this.log.removeChild(this.log.firstChild);
+  defense() {
+    return this.player.defense + (this.player.equipment.armor?.power || 0);
   }
-
-  // ---- 移動・戦闘 ----
-  tryMove(dx, dy) {
-    if (this.dead || !this.player) return false;
-
-    if (this.isIncapacitated(this.player)) {
-      this.message(`${this.incapName(this.player)}で動けない！`, 'bad');
+  move(dx, dy) {
+    if (
+      this.ended ||
+      !Number.isInteger(dx) ||
+      !Number.isInteger(dy) ||
+      Math.abs(dx) > 1 ||
+      Math.abs(dy) > 1
+    )
+      return false;
+    const p = this.player,
+      x = p.x + dx,
+      y = p.y + dy;
+    if (!dx && !dy) {
+      this.log("その場で様子をうかがう。");
       this.endTurn();
       return true;
     }
-    if (dx === 0 && dy === 0) { this.endTurn(); return true; }
-
-    if (this.isConfused(this.player) && Math.random() < 0.5) {
-      dx = randint(-1, 1); dy = randint(-1, 1);
-      this.message('混乱してふらついた。', 'sys');
-      if (dx === 0 && dy === 0) { this.endTurn(); return true; }
-    }
-
-    const nx = this.player.x + dx, ny = this.player.y + dy;
-    if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) return false;
-
-    const mon = this.monsters.find((m) => m.x === nx && m.y === ny);
-    if (mon) { this.attackMonster(mon); this.endTurn(); return true; }
-
-    if (!isWalkable(this.grid[ny][nx])) return false;
-
-    this.player.x = nx; this.player.y = ny;
-    this.triggerTrap();
-    this.pickup();
-    if (!this.dead) this.endTurn();
-    return true;
-  }
-
-  // 道なり移動: リピート中の次の進行方向を返す（続行不可なら null）。
-  runNextDir(dx, dy) {
-    if (this.dead || !this.player) return null;
-    const p = this.player;
-    if (this.isIncapacitated(p) || this.isConfused(p)) return null;
-    // 敵が見えたら停止
-    if (this.monsters.some((m) => this.visible[m.y][m.x] && dist(m, p) <= 6)) return null;
-    // 足元に興味深いものがあれば停止
-    const here = this.grid[p.y][p.x];
-    if (here === TILE.STAIRS_DOWN || here === TILE.DOOR) return null;
-    if (this.items.some((it) => it.x === p.x && it.y === p.y)) return null;
-    if (this.traps.some((t) => t.known && t.x === p.x && t.y === p.y)) return null;
-
-    const ok = (ddx, ddy) => {
-      const nx = p.x + ddx, ny = p.y + ddy;
-      if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) return false;
-      if (!isWalkable(this.grid[ny][nx])) return false;
-      return !this.monsters.some((m) => m.x === nx && m.y === ny);
-    };
-    if (ok(dx, dy)) return { dx, dy };
-    // 上下左右の移動中のみ、直角の曲がり角を追従（開口がちょうど1つのとき）
-    if (dx === 0 || dy === 0) {
-      const turns = dx === 0
-        ? [{ dx: -1, dy: 0 }, { dx: 1, dy: 0 }]
-        : [{ dx: 0, dy: -1 }, { dx: 0, dy: 1 }];
-      const open = turns.filter((t) => ok(t.dx, t.dy));
-      if (open.length === 1) return open[0];
-    }
-    return null;
-  }
-
-  // タップ検分: マップ座標 (mx, my) の説明文を返す（マップ外は null）
-  describeAt(mx, my) {
-    if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) return null;
-    if (!this.seen[my][mx]) return 'まだ見えていない場所だ。';
-
-    const terrain = () => {
-      const t = this.grid[my][mx];
-      if (t === TILE.WALL) return '壁。';
-      if (t === TILE.DOOR) return '扉。';
-      if (t === TILE.STAIRS_DOWN) return '下り階段。「>」の上で「降りる」と次の階へ進める。';
-      return '石畳の床。';
-    };
-
-    if (!this.visible[my][mx]) return `（記憶にある地形）${terrain()}`;
-
-    if (mx === this.player.x && my === this.player.y) {
-      const name = this.character?.name || 'あなた';
-      return `${name} が立っている。足元は${this.underfootDesc()}。`;
-    }
-    const mon = this.monsters.find((m) => m.x === mx && m.y === my);
-    if (mon) {
-      const st = this.statusString(mon);
-      return `${mon.name}（HP ${mon.hp}/${mon.maxHp}` +
-        (mon.ability ? `、攻撃時に${mon.ability}を与えることがある` : '') +
-        (st ? `、状態: ${st}` : '') + '）';
-    }
-    const it = this.items.find((i) => i.x === mx && i.y === my);
-    if (it) return it.gold ? `金貨が落ちている。` : `${itemName(it.item)} が落ちている。`;
-    const trap = this.traps.find((t) => t.known && t.x === mx && t.y === my);
-    if (trap) return `${TRAP_NAME[trap.type]}がある。踏まないように。`;
-    return terrain();
-  }
-
-  attackMonster(mon) {
-    delete mon.statuses['睡眠'];
-    const dmg = Math.max(1, this.atkTotal() - mon.def + randint(-1, 2));
-    mon.hp -= dmg;
-    this.message(`${mon.name}に ${dmg} のダメージ。`, 'good');
-    if (mon.hp <= 0) this.defeatMonster(mon);
-  }
-
-  defeatMonster(mon) {
-    this.message(`${mon.name}を倒した！（経験値 +${mon.xp}）`, 'good');
-    this.gainXp(mon.xp);
-    this.monsters = this.monsters.filter((m) => m !== mon);
-  }
-
-  triggerTrap() {
-    const t = this.traps.find((tr) => tr.x === this.player.x && tr.y === this.player.y && !tr.known);
-    if (!t) return;
-    t.known = true;
-    this.message(`${TRAP_NAME[t.type]}を踏んでしまった！`, 'bad');
-    if (t.type === 'dart') {
-      const d = randint(2, 5); this.player.hp -= d;
-      this.message(`矢が刺さり ${d} のダメージ。`, 'bad');
-    } else if (t.type === 'poison') {
-      const d = randint(1, 3); this.player.hp -= d;
-      this.applyStatus(this.player, '毒', randint(3, 5));
-      this.message(`毒矢を受けた（${d}ダメージ・毒）。`, 'bad');
-    } else if (t.type === 'teleport') {
-      const spot = this.randomFloorTile();
-      if (spot) { this.player.x = spot.x; this.player.y = spot.y; this.computeFOV(); }
-      this.message('景色が歪み、別の場所へ飛ばされた。', 'sys');
-    } else if (t.type === 'pit') {
-      const d = randint(3, 6); this.player.hp -= d;
-      this.applyStatus(this.player, '朦朧', 1);
-      this.message(`落とし穴に落ちて ${d} のダメージ。`, 'bad');
-    }
-    if (this.player.hp <= 0) this.killPlayer();
-  }
-
-  pickup() {
-    const idx = this.items.findIndex((it) => it.x === this.player.x && it.y === this.player.y);
-    if (idx < 0) return;
-    const it = this.items[idx];
-    if (it.gold) {
-      this.player.gold += it.gold;
-      this.message(`金貨を ${it.gold} 枚拾った。`, 'gold');
-    } else if (it.item) {
-      this.player.inventory.push(it.item);
-      this.message(`${itemName(it.item)} を拾った。`, 'good');
-    }
-    this.items.splice(idx, 1);
-  }
-
-  gainXp(amount) {
-    this.player.xp += amount;
-    while (this.player.xp >= this.player.xpNext) {
-      this.player.xp -= this.player.xpNext;
-      this.levelUp();
-    }
-  }
-  levelUp() {
-    const p = this.player;
-    p.level += 1;
-    p.xpNext = Math.floor(p.xpNext * 1.5);
-    p.maxHp += 5; p.hp = p.maxHp;
-    p.maxMp += 2; p.mp = p.maxMp;
-    p.atk += 2; p.def += 1;
-    this.message(`レベルアップ！ Lv${p.level} になった。`, 'good');
-  }
-
-  async descend() {
-    if (this.dead) return false;
-    if (this.grid[this.player.y][this.player.x] !== TILE.STAIRS_DOWN) {
-      this.message('ここに階段はない。「>」の上で試そう。', 'sys');
+    if (!this.inside(x, y)) return false;
+    // Prevent squeezing diagonally through a sealed corner.
+    if (
+      dx &&
+      dy &&
+      (!this.walkable(p.x + dx, p.y) || !this.walkable(p.x, p.y + dy))
+    ) {
+      this.log("角を斜めに抜けることはできない。");
       return false;
     }
-    await this.goToFloor(this.floor + 1);
+    if (this.tile(x, y) === "#") {
+      this.log("石壁だ。自由行動なら道を開けるかもしれない。");
+      return false;
+    }
+    if (p.stuck) {
+      p.stuck = 0;
+      this.log("糸を振りほどいた。", "warning");
+      this.endTurn();
+      return true;
+    }
+    if (this.tile(x, y) === "+") {
+      this.dungeon.grid[y][x] = "/";
+      this.log("扉を開いた。");
+      this.endTurn();
+      return true;
+    }
+    const e = this.enemyAt(x, y);
+    if (e && !e.friendly) {
+      const damage = this.attack();
+      e.hp -= damage;
+      this.log(`${e.name}に${damage}ダメージ。`, "combat");
+      this.checkKills();
+    } else {
+      if (e) {
+        e.x = p.x;
+        e.y = p.y;
+      }
+      p.x = x;
+      p.y = y;
+      this.onEnter();
+      this.pickup();
+    }
+    this.endTurn();
     return true;
   }
-
-  // ---- 装備・アイテム ----
-  equipFromInventory(i) {
-    const inv = this.player.inventory, it = inv[i];
-    if (!it) return;
-    if (!isEquippable(it)) { this.message('それは装備できない。', 'sys'); return; }
-    inv.splice(i, 1);
-    const slot = it.kind, prev = this.player.equipment[slot];
-    this.player.equipment[slot] = it;
-    if (prev) inv.push(prev);
-    this.message(`${itemName(it)} を装備した。`, 'good');
-  }
-  unequip(slot) {
-    const cur = this.player.equipment[slot];
-    if (!cur) return;
-    this.player.equipment[slot] = null;
-    this.player.inventory.push(cur);
-    this.message(`${itemName(cur)} を外した。`, 'sys');
-  }
-  dropItem(i) {
-    const inv = this.player.inventory, it = inv[i];
-    if (!it) return;
-    inv.splice(i, 1);
-    this.items.push({ x: this.player.x, y: this.player.y, sym: it.sym, color: it.color, item: it });
-    this.message(`${itemName(it)} を床に置いた。`, 'sys');
-  }
-
-  // API無し時の簡易使用（名前から推定）
-  deterministicConsume(it) {
-    const p = this.player, n = it.name;
-    if (it.kind === 'potion') {
-      if (n.includes('魔力')) { p.maxMp += 1; p.mp = p.maxMp; this.message('魔力が満ちた。', 'good'); }
-      else if (n.includes('力')) { p.atk += 1; this.message('力がみなぎる（攻撃力+1）。', 'good'); }
-      else if (n.includes('上級')) { p.maxHp += 2; const h = randint(20, 30); p.hp = Math.min(p.maxHp, p.hp + h); this.message(`HPが ${h} 回復した。`, 'good'); }
-      else { const h = randint(8, 14); p.hp = Math.min(p.maxHp, p.hp + h); this.message(`HPが ${h} 回復した。`, 'good'); }
-    } else {
-      if (n.includes('テレポート')) { const s = this.randomFloorTile(); if (s) { p.x = s.x; p.y = s.y; this.computeFOV(); } this.message('別の場所へ飛ばされた。', 'good'); }
-      else if (n.includes('地図')) { this.revealMap(); this.message('この階の地図が判明した。', 'good'); }
-      else if (n.includes('武器強化')) { const w = p.equipment.weapon; if (w) { w.ench = (w.ench || 0) + 1; this.message(`${itemName(w)} が輝いた。`, 'good'); } else this.message('武器を装備していない。', 'bad'); }
-      else if (n.includes('防具強化')) { const a = p.equipment.armor || p.equipment.shield; if (a) { a.ench = (a.ench || 0) + 1; this.message(`${itemName(a)} が硬くなった。`, 'good'); } else this.message('防具を装備していない。', 'bad'); }
-      else this.message('巻物を読んだが、はっきりした効果はなかった。', 'sys');
+  pickup() {
+    const p = this.player;
+    for (const d of this.dungeon.drops.filter(
+      (d) => d.x === p.x && d.y === p.y,
+    )) {
+      if (p.inventory.length >= 18) {
+        this.log(
+          "持ち物がいっぱい（18個）。使うか置いてから拾おう。",
+          "warning",
+        );
+        continue;
+      }
+      p.inventory.push(makeItem(d.key, d.id));
+      this.dungeon.drops = this.dungeon.drops.filter((x) => x.id !== d.id);
+      this.log(`${p.inventory.at(-1).name}を拾った。`, "good");
     }
   }
-
-  randomFloorTile() {
-    for (let t = 0; t < 200; t++) {
-      const x = randint(1, MAP_W - 2), y = randint(1, MAP_H - 2);
-      if (!isWalkable(this.grid[y][x])) continue;
-      if (this.monsters.some((m) => m.x === x && m.y === y)) continue;
-      return { x, y };
+  onEnter() {
+    const tile = this.tile(this.player.x, this.player.y);
+    if (tile === "~") {
+      this.player.burning = 0;
+      this.log("水が火を鎮める。");
     }
-    return null;
-  }
-  revealMap() {
-    for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
-      if (this.grid[y][x] !== TILE.WALL) this.seen[y][x] = true;
+    if (tile === "^") this.hurt(4, "露出した罠");
+    // Fire is resolved once at turn end, including newly created fire.
+    if (tile === '"') {
+      this.player.stuck = 1;
+      this.log("糸が足に絡む。次の移動は糸をほどく行動になる。", "warning");
     }
   }
-
-  // ---- モンスター行動 ----
+  hurt(amount, source) {
+    const blocked = Math.min(this.player.ward, amount);
+    this.player.ward -= blocked;
+    const damage = amount - blocked;
+    this.player.hp = Math.max(0, this.player.hp - damage);
+    this.log(
+      `${source}：HP −${damage}${blocked ? `（護りが${blocked}軽減）` : ""}。`,
+      "danger",
+    );
+    if (this.player.hp <= 0 && !this.ended) {
+      this.ended = "dead";
+      this.log(
+        "あなたの物語はここで途切れた。次の旅には、この記憶を。",
+        "danger",
+      );
+    }
+  }
+  checkKills() {
+    for (const e of this.dungeon.enemies)
+      if (e.hp <= 0 && !e.rewarded) {
+        e.rewarded = true;
+        e.intent = null;
+        this.gainXP(e.type === "warden" ? 10 : 3);
+        this.log(`${e.name}は倒れた。`, "good");
+      }
+  }
+  gainXP(amount) {
+    const p = this.player;
+    p.xp += amount;
+    while (p.xp >= p.level * 9) {
+      p.xp -= p.level * 9;
+      p.level++;
+      p.maxHp += 3;
+      p.hp = Math.min(p.maxHp, p.hp + 6);
+      p.maxFocus++;
+      p.focus = Math.min(p.maxFocus, p.focus + 3);
+      p.attack++;
+      if (p.level % 2 === 0) p.skills.wit++;
+      else p.skills.spirit++;
+      this.log(
+        `Lv.${p.level} — HPと集中が回復し、攻撃と判定能力が成長した。`,
+        "good",
+      );
+    }
+  }
   endTurn() {
-    if (this.dead) return;
-    for (const mon of [...this.monsters]) {
-      if (this.dead) break;
-      this.monsterAct(mon);
+    this.pending = null;
+    this.turn++;
+    this.revision++;
+    if (this.ended) {
+      this.updateVision();
+      return;
     }
-    // 状態異常の経過
-    this.tickEntity(this.player, true);
-    if (!this.dead) {
-      const survivors = [];
-      for (const mon of this.monsters) {
-        this.tickEntity(mon, false);
-        if (mon.hp <= 0) { this.message(`${mon.name}は倒れた。`, 'good'); this.gainXp(mon.xp); }
-        else survivors.push(mon);
+    const p = this.player;
+    if (p.poison) {
+      p.poison--;
+      this.hurt(2, "毒");
+    }
+    if (!this.ended && p.burning) {
+      p.burning--;
+      this.hurt(2, "炎上");
+    }
+    const spread = [];
+    for (let y = 1; y < HEIGHT - 1; y++)
+      for (let x = 1; x < WIDTH - 1; x++)
+        if (this.tile(x, y) === "*") {
+          for (const [dx, dy] of [
+            [0, 1],
+            [0, -1],
+            [1, 0],
+            [-1, 0],
+          ])
+            if (this.tile(x + dx, y + dy) === "=")
+              spread.push({ x: x + dx, y: y + dy });
+        }
+    for (const s of spread) this.dungeon.grid[s.y][s.x] = "*";
+    if (!this.ended && this.tile(p.x, p.y) === "*") this.hurt(3, "足元の炎");
+    for (const e of this.dungeon.enemies) {
+      if (this.ended) break;
+      if (e.hp <= 0 || e.friendly) continue;
+      if (this.tile(e.x, e.y) === "~") e.burning = 0;
+      if (this.tile(e.x, e.y) === "*") {
+        e.hp -= 3;
+        if (e.hp <= 0) continue;
       }
-      this.monsters = survivors;
-    }
-    this.computeFOV();
-  }
-
-  monsterAct(mon) {
-    if (this.isIncapacitated(mon)) return;
-    const p = this.player, d = dist(mon, p);
-    const flee = this.hasStatus(mon, '恐怖');
-    const confused = this.isConfused(mon);
-
-    if (d <= 1 && !flee && !confused) { this.monsterAttack(mon); return; }
-
-    let dx, dy;
-    if (confused) { dx = randint(-1, 1); dy = randint(-1, 1); }
-    else if (flee) { dx = Math.sign(mon.x - p.x); dy = Math.sign(mon.y - p.y); }
-    else {
-      if (!(d <= 7 && this.visible[mon.y][mon.x])) return;
-      dx = Math.sign(p.x - mon.x); dy = Math.sign(p.y - mon.y);
-    }
-    this.moveMonster(mon, dx, dy);
-  }
-
-  moveMonster(mon, dx, dy) {
-    const p = this.player;
-    const tries = [[dx, dy], [dx, 0], [0, dy]];
-    for (const [mx, my] of tries) {
-      if (mx === 0 && my === 0) continue;
-      const nx = mon.x + mx, ny = mon.y + my;
-      if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) continue;
-      if (nx === p.x && ny === p.y) { this.monsterAttack(mon); return; }
-      if (!isWalkable(this.grid[ny][nx])) continue;
-      if (this.monsters.some((m) => m !== mon && m.x === nx && m.y === ny)) continue;
-      mon.x = nx; mon.y = ny; return;
-    }
-  }
-
-  monsterAttack(mon) {
-    delete this.player.statuses['睡眠'];
-    const raw = mon.atk - this.defTotal() + randint(-1, 1);
-    const dmg = mon.atk === 0 ? 0 : Math.max(1, raw);
-    if (dmg > 0) {
-      this.player.hp -= dmg;
-      this.message(`${mon.name}の攻撃！ ${dmg} のダメージ。`, 'bad');
-    } else {
-      this.message(`${mon.name}がこちらをじっと見つめる。`, 'bad');
-    }
-    if (mon.ability && Math.random() < 0.35) {
-      const turns = mon.ability === '石化' ? randint(3, 5) : randint(2, 4);
-      this.applyStatus(this.player, mon.ability, turns);
-      this.message(`${mon.ability}状態になった！`, 'bad');
-    }
-    if (this.player.hp <= 0) this.killPlayer();
-  }
-
-  killPlayer() {
-    this.player.hp = 0;
-    this.dead = true;
-    const name = this.character?.name || 'あなた';
-    this.message(`${name}は地下${this.floor}階で力尽きた……。`, 'bad');
-    this.message('成長とアイテムは持ち越されない。⚙設定 →「最初から」か「キャラクター選択」で再挑戦できる。', 'sys');
-  }
-
-  // ---- 状態要約（LLM用） ----
-  statusString(ent) {
-    const ks = Object.keys(ent.statuses);
-    return ks.length ? ks.map((k) => `${k}${ent.statuses[k]}`).join(' ') : '';
-  }
-  describeSurroundings() {
-    const p = this.player;
-    const dirs = [['北', 0, -1], ['南', 0, 1], ['東', 1, 0], ['西', -1, 0]];
-    return dirs.map(([name, dx, dy]) => {
-      const x = p.x + dx, y = p.y + dy;
-      if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return `${name}は岩壁`;
-      const t = this.grid[y][x];
-      if (t === TILE.WALL) return `${name}は壁`;
-      if (t === TILE.STAIRS_DOWN) return `${name}に下り階段`;
-      return `${name}は通路`;
-    }).join('、');
-  }
-  underfootDesc() {
-    if (this.grid[this.player.y][this.player.x] === TILE.STAIRS_DOWN) return '下り階段の上';
-    const it = this.items.find((i) => i.x === this.player.x && i.y === this.player.y);
-    if (it) return it.gold ? '金貨の上' : `${itemName(it.item)}の上`;
-    return '石畳の床';
-  }
-  nearbyTrapDesc() {
-    const known = this.traps.filter((t) => t.known && dist(t, this.player) <= 5);
-    return known.length ? known.map((t) => `${TRAP_NAME[t.type]}(${dirName(Math.sign(t.x - this.player.x), Math.sign(t.y - this.player.y))})`).join('、') : '';
-  }
-  nearbyMonsters() {
-    return this.monsters
-      .filter((m) => this.visible[m.y][m.x] && dist(m, this.player) <= 8)
-      .map((m) => ({
-        id: m.id, name: m.name, hp: m.hp, maxHp: m.maxHp,
-        dist: dist(m, this.player),
-        dir: dirName(Math.sign(m.x - this.player.x), Math.sign(m.y - this.player.y)),
-        statuses: this.statusString(m),
-      }));
-  }
-  equipmentDesc() {
-    const e = this.player.equipment;
-    return `武器:${itemName(e.weapon)} / 防具:${itemName(e.armor)} / 盾:${itemName(e.shield)}`;
-  }
-  stateSummary() {
-    const p = this.player;
-    return {
-      charName: this.character?.name || '',
-      personality: this.character?.personality || '',
-      floor: this.floor,
-      theme: this.roster?.theme || '未知の階層',
-      layout: this.roster?.layout || '不明',
-      level: p.level, xp: p.xp, xpNext: p.xpNext,
-      hp: p.hp, maxHp: p.maxHp, mp: p.mp, maxMp: p.maxMp,
-      atk: this.atkTotal(), def: this.defTotal(), gold: p.gold,
-      playerStatus: this.statusString(p),
-      equipment: this.equipmentDesc(),
-      inventory: p.inventory.map((it) => itemName(it)),
-      underfoot: this.underfootDesc(),
-      surroundings: this.describeSurroundings(),
-      nearbyTraps: this.nearbyTrapDesc(),
-      monsters: this.nearbyMonsters(),
-    };
-  }
-
-  // ---- LLM判定の適用（自由行動／アイテム使用 共通） ----
-  applyEffects(eff) {
-    const p = this.player;
-    if (eff.narration) this.message(eff.narration, 'gm');
-
-    if (eff.hp_delta) p.hp = Math.max(0, Math.min(p.maxHp, p.hp + clampInt(eff.hp_delta, -40, 40)));
-    if (eff.mp_delta) p.mp = Math.max(0, Math.min(p.maxMp, p.mp + clampInt(eff.mp_delta, -20, 20)));
-    if (eff.gold_delta) p.gold = Math.max(0, p.gold + clampInt(eff.gold_delta, -100, 100));
-    if (eff.xp_delta && eff.xp_delta > 0) this.gainXp(clampInt(eff.xp_delta, 0, 50));
-
-    if (Array.isArray(eff.add_items)) {
-      for (const name of eff.add_items) {
-        if (!name) continue;
-        const known = resolveByName(name);
-        if (known) p.inventory.push(known);
-        else p.inventory.push({ id: 'misc', name: String(name).slice(0, 20), kind: 'misc', sym: '*', color: '#aaa' });
+      if (e.burning) {
+        e.hp -= 3;
+        e.burning--;
+        if (e.hp <= 0) continue;
       }
-    }
-    if (Array.isArray(eff.remove_items)) {
-      for (const name of eff.remove_items) {
-        const base = String(name).replace(/[+\-]\d+$/, '').trim();
-        const idx = p.inventory.findIndex((it) => it.name === base || itemName(it) === name);
-        if (idx >= 0) p.inventory.splice(idx, 1);
+      if (e.stunned > 0) {
+        e.stunned--;
+        e.intent = null;
+        continue;
       }
-    }
-
-    if (Array.isArray(eff.player_status)) {
-      for (const s of eff.player_status) if (s && s.name) this.applyStatus(p, s.name, s.turns);
-    }
-    if (Array.isArray(eff.clear_status)) {
-      for (const name of eff.clear_status) delete p.statuses[name];
-    }
-
-    if (Array.isArray(eff.monster_effects)) {
-      for (const me of eff.monster_effects) {
-        const mon = this.monsters.find((m) => m.id === me.id);
-        if (!mon) continue;
-        if (me.hp_delta) {
-          mon.hp += clampInt(me.hp_delta, -40, 10);
-          if (mon.hp <= 0) {
-            this.message(`${mon.name}は倒れた。`, 'good');
-            this.gainXp(mon.xp);
-            this.monsters = this.monsters.filter((m) => m !== mon);
-            continue;
+      // Resolve the previously advertised attack, never an unadvertised one.
+      if (e.intent) {
+        if (
+          e.intent.tiles.some((t) => t.x === p.x && t.y === p.y) &&
+          lineOfSight(this.dungeon.grid, e, p)
+        ) {
+          this.hurt(Math.max(1, e.attack - this.defense()), e.name);
+          if (!this.ended && e.behavior === "poison") p.poison = 2;
+          if (!this.ended && e.behavior === "drain")
+            p.focus = Math.max(0, p.focus - 2);
+        } else this.log(`${e.name}の攻撃は空を切った。`, "combat");
+        e.intent = null;
+        // A recovery turn after each strike gives time to counterattack.
+        continue;
+      }
+      if (distance(e, p) > 7 || !lineOfSight(this.dungeon.grid, e, p)) continue;
+      if (distance(e, p) <= e.range) {
+        const tiles = [{ x: p.x, y: p.y }];
+        if (e.behavior === "slam")
+          for (const [dx, dy] of [
+            [0, 1],
+            [0, -1],
+            [1, 0],
+            [-1, 0],
+          ])
+            tiles.push({ x: p.x + dx, y: p.y + dy });
+        e.intent = {
+          tiles,
+          label:
+            e.behavior === "slam"
+              ? "大振り"
+              : e.behavior === "ranged"
+                ? "射撃"
+                : "攻撃",
+        };
+      } else {
+        const candidates = [
+          [Math.sign(p.x - e.x), 0],
+          [0, Math.sign(p.y - e.y)],
+        ];
+        candidates.sort(
+          (a, b) =>
+            distance({ x: e.x + a[0], y: e.y + a[1] }, p) -
+            distance({ x: e.x + b[0], y: e.y + b[1] }, p),
+        );
+        for (const [dx, dy] of candidates) {
+          const x = e.x + dx,
+            y = e.y + dy;
+          if (
+            (dx || dy) &&
+            this.walkable(x, y) &&
+            !this.enemyAt(x, y) &&
+            !(x === p.x && y === p.y)
+          ) {
+            e.x = x;
+            e.y = y;
+            if (this.tile(x, y) === "^") e.hp -= 4;
+            if (this.tile(x, y) === '"' && e.type !== "spider") e.stunned = 1;
+            break;
           }
         }
-        if (me.status && STATUS_INFO[me.status]) {
-          this.applyStatus(mon, me.status, me.status_turns);
-          this.message(`${mon.name}は${me.status}状態になった。`, 'good');
-        }
       }
     }
-
-    if (eff.reveal_map) this.revealMap();
-    if (eff.teleport) {
-      const s = this.randomFloorTile();
-      if (s) { p.x = s.x; p.y = s.y; this.computeFOV(); }
+    this.checkKills();
+    if (!this.ended && this.turn % 4 === 0)
+      p.focus = Math.min(p.maxFocus, p.focus + 1);
+    this.updateVision();
+  }
+  rest() {
+    if (this.ended) return false;
+    if (this.visibleEnemies().some((e) => !e.friendly)) {
+      this.log("敵が見えている。まず視線を切って、安全な場所へ。", "warning");
+      return false;
     }
-
-    let moved = false;
-    if (eff.move_dx || eff.move_dy) {
-      const dx = Math.sign(eff.move_dx || 0), dy = Math.sign(eff.move_dy || 0);
-      const nx = p.x + dx, ny = p.y + dy;
-      if (nx >= 0 && ny >= 0 && nx < MAP_W && ny < MAP_H && isWalkable(this.grid[ny][nx])
-          && !this.monsters.some((m) => m.x === nx && m.y === ny)) {
-        p.x = nx; p.y = ny; this.triggerTrap(); this.pickup(); moved = true;
+    const camp =
+      this.tile(this.player.x, this.player.y) === "&" && !this.dungeon.campUsed;
+    if (!camp && !this.player.supplies) {
+      this.log("野営には糧食が必要。未使用の野営地なら無料。", "warning");
+      return false;
+    }
+    if (camp) this.dungeon.campUsed = true;
+    else this.player.supplies--;
+    this.player.hp = Math.min(this.player.maxHp, this.player.hp + 12);
+    this.player.focus = Math.min(this.player.maxFocus, this.player.focus + 7);
+    this.player.poison = this.player.burning = this.player.stuck = 0;
+    this.log("野営した。HP＋12、集中＋7。状態異常を解除。", "good");
+    this.endTurn();
+    return true;
+  }
+  interact() {
+    if (this.ended) return false;
+    const p = this.player,
+      tile = this.tile(p.x, p.y);
+    const obj = this.dungeon.objects.find((o) => o.x === p.x && o.y === p.y);
+    if (obj) {
+      if (p.inventory.length >= 18) {
+        this.log("持ち物がいっぱい。", "warning");
+        return false;
+      }
+      p.inventory.push(
+        obj.droppedItem || {
+          id: obj.id,
+          key: "custom",
+          kind: "tool",
+          name: obj.name,
+          detail: obj.detail,
+          symbol: obj.symbol,
+          tags: [
+            obj.skill === "wit" ? "知" : obj.skill === "might" ? "力" : "心",
+          ],
+        },
+      );
+      this.dungeon.objects = this.dungeon.objects.filter(
+        (o) => o.id !== obj.id,
+      );
+      this.log(`${obj.name}を手に取った。自由行動の道具として使える。`, "good");
+      this.endTurn();
+      return true;
+    }
+    if (tile === ">") {
+      this.floor++;
+      p.hp = Math.min(p.maxHp, p.hp + 4);
+      p.focus = Math.min(p.maxFocus, p.focus + 3);
+      p.poison = p.burning = p.stuck = 0;
+      this.revision++;
+      this.pending = null;
+      this.turn++;
+      this.loadFloor();
+      return true;
+    }
+    if (tile === "0") {
+      const guardian = this.dungeon.enemies.find((e) => e.type === "warden");
+      if (guardian && guardian.hp > 0 && !guardian.friendly) {
+        this.log("守護者が星を護っている。戦う以外の道もある。", "warning");
+        return false;
+      }
+      this.ended = "won";
+      this.revision++;
+      this.pending = null;
+      this.log(
+        "星を胸に、地上へ。あなたが書き換えた世界は、あなたの不在にも続いていく。",
+        "story",
+      );
+      return true;
+    }
+    if (tile === "&") return this.rest();
+    const before = p.inventory.length;
+    this.pickup();
+    if (p.inventory.length > before) {
+      this.endTurn();
+      return true;
+    }
+    this.log("階段、星の核、野営地、創作した道具の上で使おう。");
+    return false;
+  }
+  useItem(id, target) {
+    if (this.ended) return false;
+    const p = this.player,
+      item = p.inventory.find((i) => i.id === id);
+    if (!item) return false;
+    if (item.kind === "tool") {
+      this.log(
+        "この道具は自由行動の判定を助ける。行動に名前を織り込んでみよう。",
+      );
+      return false;
+    }
+    if (item.kind === "oil") {
+      const e = this.visibleEnemies().find(
+        (e) => e.id === target && !e.friendly && distance(p, e) <= 3,
+      );
+      if (!e) {
+        this.log("マップで3マス以内の敵を選択してから使おう。", "warning");
+        return false;
+      }
+      e.hp -= 8;
+      e.burning = 2;
+      this.log(`${e.name}に8ダメージ。2ターン炎上。`, "combat");
+    } else if (item.kind === "heal") {
+      p.hp = Math.min(p.maxHp, p.hp + 14);
+      p.poison = p.burning = 0;
+      this.log("HP＋14。毒と炎上を解除。", "good");
+    } else if (item.kind === "focus") {
+      p.focus = Math.min(p.maxFocus, p.focus + 8);
+      this.log("集中＋8。", "good");
+    } else if (item.kind === "smoke") {
+      for (const e of this.visibleEnemies().filter((e) => !e.friendly)) {
+        e.stunned = 3;
+        e.intent = null;
+      }
+      this.log("煙が敵の予告を消す。3ターン足止め。", "good");
+    } else if (item.kind === "blink") {
+      Object.assign(p, this.dungeon.start);
+      p.stuck = 0;
+      this.log("入口へ帰還した。", "good");
+    } else if (item.kind === "ration") {
+      p.supplies++;
+      this.log("野営の糧食＋1。", "good");
+    } else if (["weapon", "armor"].includes(item.kind)) {
+      const old = p.equipment[item.kind];
+      p.equipment[item.kind] = item;
+      p.inventory = p.inventory.filter((i) => i.id !== id);
+      if (old) p.inventory.push(old);
+      this.log(`${item.name}を装備した。`, "good");
+      this.endTurn();
+      return true;
+    } else return false;
+    p.inventory = p.inventory.filter((i) => i.id !== id);
+    this.checkKills();
+    this.endTurn();
+    return true;
+  }
+  dropItem(id) {
+    if (this.ended) return false;
+    const item = this.player.inventory.find((i) => i.id === id);
+    if (!item) return false;
+    // All drops retain their complete identity, including invented tools.
+    this.dungeon.objects.push({
+      ...item,
+      x: this.player.x,
+      y: this.player.y,
+      droppedItem: item,
+    });
+    this.player.inventory = this.player.inventory.filter((i) => i.id !== id);
+    this.log(`${item.name}を床に置いた。`);
+    this.endTurn();
+    return true;
+  }
+  inspect(x, y) {
+    if (!this.inside(x, y) || !this.seen[y]?.[x])
+      return { title: "未踏の暗がり", detail: "まだ見ていない場所。", x, y };
+    const tile = this.rememberedTile(x, y),
+      def = TILES[tile];
+    if (!this.visible[y][x])
+      return {
+        title: `記憶：${tile} ${def.name}`,
+        detail: `${def.detail} 今は視界の外。敵や道具の現在位置は分からない。`,
+        x,
+        y,
+      };
+    const enemy = this.enemyAt(x, y),
+      drop = this.dungeon.drops.find((d) => d.x === x && d.y === y),
+      object = this.dungeon.objects.find((o) => o.x === x && o.y === y);
+    if (enemy)
+      return {
+        title: `${enemy.symbol} ${enemy.name}${enemy.friendly ? " / 友好的" : ""}`,
+        detail: `HP ${enemy.hp}/${enemy.maxHp} ・攻撃 ${Math.max(1, enemy.attack - this.defense())}。${enemy.detail} 特性：${enemy.tags.join("、")}。${enemy.stunned ? `拘束：あと${enemy.stunned}ターン。` : ""}`,
+        enemyId: enemy.id,
+        x,
+        y,
+      };
+    if (object)
+      return {
+        title: `${object.symbol} ${object.name}`,
+        detail: object.detail,
+        x,
+        y,
+      };
+    if (drop) {
+      const item = makeItem(drop.key, drop.id);
+      return {
+        title: `${item.symbol} ${item.name}`,
+        detail: item.detail,
+        x,
+        y,
+      };
+    }
+    return { title: `${tile} ${def.name}`, detail: def.detail, x, y };
+  }
+  context(selected = null) {
+    const cells = [];
+    for (let y = 0; y < HEIGHT; y++)
+      for (let x = 0; x < WIDTH; x++)
+        if (this.visible[y][x] && distance(this.player, { x, y }) <= 4)
+          cells.push({
+            x,
+            y,
+            tile: this.tile(x, y),
+            name: TILES[this.tile(x, y)].name,
+          });
+    return {
+      floor: this.floor,
+      theme: this.dungeon.theme.name,
+      turn: this.turn,
+      player: this.player,
+      selected,
+      enemies: this.visibleEnemies(),
+      nearby: cells,
+      objects: this.dungeon.objects.filter((o) => this.visible[o.y]?.[o.x]),
+      memory: this.memory.slice(-12),
+      threats: this.threats(),
+    };
+  }
+  prepare(raw, command) {
+    if (this.ended) throw new Error("冒険は終了している。新しい旅を始めよう。");
+    if (
+      !raw ||
+      !Array.isArray(raw.effects) ||
+      raw.effects.length < 1 ||
+      raw.effects.length > 2
+    )
+      throw new Error("行動は1〜2個の具体的な効果で提案してください。");
+    const skill = Object.hasOwn(SKILLS, raw.skill) ? raw.skill : "wit";
+    const effects = [],
+      unique = new Set();
+    let minimumEffort = 1,
+      minimumDifficulty = 1;
+    for (const input of raw.effects) {
+      if (!input || !EFFECTS.has(input.kind))
+        throw new Error(
+          "世界に反映できる効果が含まれていません。言い方を変えてみよう。",
+        );
+      const e = {
+        kind: input.kind,
+        target: clean(input.target, 60),
+        x: Number(input.x),
+        y: Number(input.y),
+        name: clean(input.name, 32),
+        detail: clean(input.detail, 180),
+        symbol: clean(input.symbol, 1),
+      };
+      const enemy = this.visibleEnemies().find(
+        (m) => m.id === e.target && !m.friendly,
+      );
+      if (
+        ["damage", "stun", "peace"].includes(e.kind) &&
+        (!enemy || distance(enemy, this.player) > 4)
+      )
+        throw new Error("対象の敵は視界内かつ4マス以内である必要があります。");
+      if (["move", "terrain", "create"].includes(e.kind)) {
+        if (
+          !this.inside(e.x, e.y) ||
+          !this.visible[e.y][e.x] ||
+          distance(this.player, e) > (e.kind === "move" ? 4 : 3)
+        )
+          throw new Error("対象マスは視界内の近い場所を指定してください。");
+        if (
+          e.kind === "move" &&
+          (!this.walkable(e.x, e.y) || this.enemyAt(e.x, e.y))
+        )
+          throw new Error("移動先には通行可能な空きマスが必要です。");
+        if (
+          e.kind === "terrain" &&
+          (!TERRAIN.has(e.symbol) ||
+            [">", "<", "0", "&"].includes(this.tile(e.x, e.y)))
+        )
+          throw new Error(
+            "階段や星、野営地は書き換えられません。地形は床・水・糸・油・火を指定してください。",
+          );
+        if (
+          e.kind === "create" &&
+          (!this.walkable(e.x, e.y) ||
+            this.enemyAt(e.x, e.y) ||
+            this.dungeon.objects.some((o) => o.x === e.x && o.y === e.y) ||
+            !e.name)
+        )
+          throw new Error(
+            "名前のある道具を、近くの空いた床に生み出してください。",
+          );
+      }
+      if (["heal", "cleanse", "ward", "reveal"].includes(e.kind)) {
+        e.target = "self";
+        e.x = this.player.x;
+        e.y = this.player.y;
+      }
+      if (e.kind === "damage" && !["", "*", "~", ":"].includes(e.symbol))
+        e.symbol = "";
+      if (e.kind === "damage" && e.symbol)
+        minimumEffort = Math.max(minimumEffort, 2);
+      const key = `${e.kind}:${["damage", "stun", "peace"].includes(e.kind) ? e.target : `${e.x},${e.y}`}`;
+      if (unique.has(key))
+        throw new Error("同じ効果を重ねることはできません。");
+      unique.add(key);
+      minimumEffort = Math.max(minimumEffort, COST[e.kind]);
+      minimumDifficulty = Math.max(minimumDifficulty, DIFFICULTY[e.kind]);
+      if (enemy?.type === "warden") {
+        minimumEffort = Math.max(minimumEffort, 4);
+        minimumDifficulty = 5;
+      }
+      effects.push(e);
+    }
+    const consumes = [
+      ...new Set(Array.isArray(raw.consumes) ? raw.consumes : []),
+    ];
+    if (consumes.length > 2)
+      throw new Error("一度に消費できる材料は2個までです。");
+    if (consumes.some((id) => !this.player.inventory.some((i) => i.id === id)))
+      throw new Error("材料に指定された道具を持っていません。");
+    const effort = clamp(raw.effort, minimumEffort, 5),
+      difficulty = clamp(raw.difficulty, minimumDifficulty, 5);
+    const cost = effort + effects.length - 1;
+    const tool = this.player.inventory.some(
+      (i) =>
+        i.kind === "tool" &&
+        (skill === "wit"
+          ? i.tags.some((t) => ["知", "技"].includes(t))
+          : i.tags.includes(SKILLS[skill])),
+    )
+      ? 1
+      : 0;
+    const environment = this.dungeon.objects.some(
+      (o) => o.skill === skill && distance(o, this.player) <= 2,
+    )
+      ? 1
+      : 0;
+    const bonus =
+      this.player.skills[skill] +
+      tool +
+      environment +
+      Math.floor(effort / 2) +
+      (consumes.length ? 1 : 0);
+    const threshold = difficulty + 3,
+      chance = clamp(((7 + bonus - threshold) / 6) * 100, 0, 100);
+    const potency = Math.max(
+      2,
+      Math.floor(
+        (4 + effort * 2 + Math.floor(this.player.level / 2)) / effects.length,
+      ),
+    );
+    const proposal = {
+      title: clean(raw.title, 60) || "世界への働きかけ",
+      reasoning: clean(raw.reasoning, 280),
+      success: clean(raw.success, 280) || "試みは形になった。",
+      failure:
+        clean(raw.failure, 280) || "あと少し届かなかった。状況を変えて試そう。",
+      skill,
+      difficulty,
+      effort,
+      cost,
+      consumes,
+      effects,
+      bonus,
+      threshold,
+      chance,
+      potency,
+      command: clean(command, 500),
+      revision: this.revision,
+    };
+    this.pending = proposal;
+    return structuredClone(proposal);
+  }
+  damageAmount(e, a) {
+    const enemy = this.dungeon.enemies.find((m) => m.id === e.target);
+    if (!enemy) return a.potency;
+    let amount = a.potency;
+    if (e.symbol === "*") {
+      if (this.tile(enemy.x, enemy.y) === "~") amount = Math.ceil(amount / 2);
+      else if (enemy.tags.some((t) => ["紙", "火に弱い"].includes(t)))
+        amount += 3;
+    }
+    if (e.symbol === ":" && this.tile(enemy.x, enemy.y) === "~") amount += 4;
+    return amount;
+  }
+  effectDescription(e, proposal) {
+    const enemy =
+      this.dungeon.enemies.find((m) => m.id === e.target)?.name || "敵";
+    const descriptions = {
+      damage: `${enemy}に${this.damageAmount(e, proposal)}ダメージ${e.symbol === "*" ? "＋炎上（2ターン、各3。水上では炎上なし）" : e.symbol === "~" ? "＋1ターン凍結（予告解除）" : e.symbol === ":" ? "（水上なら感電＋4を加算済み）" : ""}`,
+      stun: `${enemy}を${Math.min(4, 1 + proposal.effort)}ターン拘束（攻撃予告を解除）`,
+      peace: `${enemy}と和解、この階で敵対しない`,
+      heal: `HPを${proposal.potency}回復`,
+      cleanse: "毒・炎上・拘束を解除",
+      ward: `${proposal.potency}ダメージ分の護り（重複せず、上限12）`,
+      move: `(${e.x}, ${e.y})へ移動`,
+      terrain: `(${e.x}, ${e.y})を${TILES[e.symbol]?.name || "地形"}に変える`,
+      create: `(${e.x}, ${e.y})に「${e.name}」を創作。持ち歩ける判定道具`,
+      reveal: "この階の地形を記憶する（敵は表示しない）",
+    };
+    return descriptions[e.kind];
+  }
+  execute() {
+    const a = this.pending;
+    if (!a || a.revision !== this.revision || this.ended)
+      throw new Error("状況が変わりました。もう一度提案を作ってください。");
+    if (this.player.focus < a.cost)
+      throw new Error(
+        "集中が足りません。規模を小さくするか、薬・野営で回復しよう。",
+      );
+    this.player.focus -= a.cost;
+    this.player.inventory = this.player.inventory.filter(
+      (i) => !a.consumes.includes(i.id),
+    );
+    const die = 1 + Math.floor(this.random() * 6),
+      success = die + a.bonus >= a.threshold;
+    this.log(
+      `「${a.command}」 / d6=${die}＋${a.bonus} 対 ${a.threshold} → ${success ? "成功" : "失敗"}。集中 −${a.cost}。`,
+      success ? "good" : "warning",
+    );
+    this.log(success ? a.success : a.failure, "story");
+    if (success) {
+      for (const e of a.effects) this.applyEffect(e, a);
+      this.memory.push({
+        floor: this.floor,
+        turn: this.turn,
+        action: a.command,
+        result: a.success,
+        effects: a.effects.map((e) => this.effectDescription(e, a)),
+      });
+      this.memory = this.memory.slice(-20);
+      this.checkKills();
+    }
+    this.endTurn();
+    return { success, die };
+  }
+  applyEffect(e, a) {
+    const enemy = this.dungeon.enemies.find((m) => m.id === e.target),
+      p = this.player;
+    if (e.kind === "damage" && enemy) {
+      enemy.hp -= this.damageAmount(e, a);
+      if (e.symbol === "*" && this.tile(enemy.x, enemy.y) !== "~") {
+        enemy.burning = 2;
+        if (this.tile(enemy.x, enemy.y) === "=")
+          this.dungeon.grid[enemy.y][enemy.x] = "*";
+      }
+      if (e.symbol === "~") {
+        enemy.stunned = 1;
+        enemy.intent = null;
       }
     }
-
-    if (p.hp <= 0) { this.killPlayer(); this.render(); return; }
-    if (eff.end_turn) this.endTurn();
-    else if (moved) this.computeFOV();
-    if (p.hp <= 0) this.killPlayer();
-    this.render();
+    if (e.kind === "stun" && enemy) {
+      enemy.stunned = Math.min(4, 1 + a.effort);
+      enemy.intent = null;
+    }
+    if (e.kind === "peace" && enemy) {
+      enemy.friendly = true;
+      enemy.intent = null;
+      if (!enemy.rewarded) {
+        enemy.rewarded = true;
+        this.gainXP(enemy.type === "warden" ? 10 : 3);
+      }
+    }
+    if (e.kind === "heal") p.hp = Math.min(p.maxHp, p.hp + a.potency);
+    if (e.kind === "cleanse") p.poison = p.burning = p.stuck = 0;
+    if (e.kind === "ward") p.ward = Math.min(12, Math.max(p.ward, a.potency));
+    if (e.kind === "move") {
+      p.x = e.x;
+      p.y = e.y;
+      p.stuck = 0;
+      this.onEnter();
+      this.pickup();
+    }
+    if (e.kind === "terrain") this.dungeon.grid[e.y][e.x] = e.symbol;
+    if (e.kind === "create")
+      this.dungeon.objects.push({
+        id: this.id(),
+        name: e.name,
+        detail: e.detail || a.success,
+        symbol: /^[!-~]$/.test(e.symbol) ? e.symbol : "&",
+        x: e.x,
+        y: e.y,
+        skill: a.skill,
+      });
+    if (e.kind === "reveal") {
+      this.seen = this.seen.map((row) => row.map(() => true));
+      this.knownTerrain = this.dungeon.grid.map((row) => [...row]);
+    }
+    this.log(this.effectDescription(e, a) + "。", "good");
+  }
+  serialize() {
+    const data = { version: 2 };
+    for (const key of SAVE_FIELDS) data[key] = this[key];
+    return JSON.stringify(data);
+  }
+  static restore(json) {
+    const d = JSON.parse(json);
+    const point = (p) =>
+      p &&
+      Number.isInteger(p.x) &&
+      Number.isInteger(p.y) &&
+      p.x > 0 &&
+      p.x < WIDTH - 1 &&
+      p.y > 0 &&
+      p.y < HEIGHT - 1;
+    const strings = (a) =>
+      Array.isArray(a) && a.every((s) => typeof s === "string");
+    const item = (i) =>
+      i &&
+      typeof i.id === "string" &&
+      typeof i.name === "string" &&
+      typeof i.detail === "string" &&
+      /^[!-~]$/.test(i.symbol) &&
+      strings(i.tags) &&
+      [
+        "tool",
+        "weapon",
+        "armor",
+        "heal",
+        "focus",
+        "smoke",
+        "blink",
+        "oil",
+        "ration",
+      ].includes(i.kind);
+    if (
+      d?.version !== 2 ||
+      !Number.isInteger(d.floor) ||
+      d.floor < 1 ||
+      d.floor > LAST_FLOOR ||
+      !Object.hasOwn(BACKGROUNDS, d.background) ||
+      !d.player ||
+      !Number.isFinite(d.player.hp) ||
+      !Number.isFinite(d.player.focus) ||
+      !Array.isArray(d.player.inventory) ||
+      !d.player.skills ||
+      !d.player.equipment ||
+      typeof d.player.name !== "string" ||
+      ![
+        "maxHp",
+        "maxFocus",
+        "attack",
+        "defense",
+        "level",
+        "xp",
+        "supplies",
+        "ward",
+        "poison",
+        "burning",
+        "stuck",
+      ].every((k) => Number.isInteger(d.player[k]) && d.player[k] >= 0) ||
+      !Object.keys(SKILLS).every(
+        (k) => Number.isInteger(d.player.skills[k]) && d.player.skills[k] >= 0,
+      ) ||
+      !d.player.inventory.every(item) ||
+      !Object.values(d.player.equipment).every((i) => i === null || item(i)) ||
+      ![null, "dead", "won"].includes(d.ended) ||
+      !Array.isArray(d.dungeon?.enemies) ||
+      !Array.isArray(d.dungeon?.drops) ||
+      !Array.isArray(d.dungeon?.objects) ||
+      !point(d.dungeon.start) ||
+      !point(d.dungeon.exit) ||
+      typeof d.dungeon.theme?.name !== "string" ||
+      !d.dungeon.enemies.every(
+        (e) =>
+          point(e) &&
+          typeof e.id === "string" &&
+          Number.isFinite(e.hp) &&
+          Number.isFinite(e.attack) &&
+          Number.isFinite(e.range) &&
+          strings(e.tags) &&
+          (e.intent === null ||
+            (Array.isArray(e.intent?.tiles) &&
+              e.intent.tiles.every(
+                (t) => Number.isInteger(t.x) && Number.isInteger(t.y),
+              ))),
+      ) ||
+      !d.dungeon.drops.every((i) => point(i) && Object.hasOwn(ITEMS, i.key)) ||
+      !d.dungeon.objects.every(
+        (o) =>
+          point(o) &&
+          typeof o.name === "string" &&
+          typeof o.detail === "string" &&
+          (!o.droppedItem || item(o.droppedItem)),
+      ) ||
+      !Array.isArray(d.messages) ||
+      !Array.isArray(d.memory) ||
+      !d.messages.every(
+        (m) => typeof m.text === "string" && typeof m.kind === "string",
+      ) ||
+      !d.memory.every(
+        (m) =>
+          typeof m.action === "string" &&
+          typeof m.result === "string" &&
+          strings(m.effects),
+      ) ||
+      (d.knownTerrain &&
+        (!Array.isArray(d.knownTerrain) ||
+          d.knownTerrain.length !== HEIGHT ||
+          !d.knownTerrain.every(
+            (r) =>
+              Array.isArray(r) &&
+              r.length === WIDTH &&
+              r.every((t) => Object.hasOwn(TILES, t)),
+          ))) ||
+      !d.dungeon.grid ||
+      d.dungeon.grid.length !== HEIGHT ||
+      !d.dungeon.grid.every(
+        (r) => r.length === WIDTH && r.every((t) => Object.hasOwn(TILES, t)),
+      ) ||
+      d.seen?.length !== HEIGHT ||
+      !d.seen.every((r) => r.length === WIDTH) ||
+      !Number.isInteger(d.rng) ||
+      !Number.isInteger(d.serial) ||
+      !Number.isInteger(d.revision)
+    )
+      throw new Error(
+        "このセーブは読み込めません。新しい冒険を始めてください。",
+      );
+    const game = Object.create(Game.prototype);
+    for (const key of SAVE_FIELDS) game[key] = d[key];
+    game.knownTerrain ||= game.dungeon.grid.map((row) => [...row]);
+    if (!game.inside(d.player.x, d.player.y))
+      throw new Error("セーブの座標が不正です。");
+    game.pending = null;
+    game.updateVision();
+    return game;
   }
 }

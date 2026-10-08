@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - claude/ascii-rogue-llm-game-uv7ivv
   workflow_dispatch:
 
 permissions:
@@ -26,13 +25,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Check game
+        run: |
+          npm run check
+          npm test
+
+      - name: Stage site
+        run: |
+          mkdir _site
+          cp index.html _site/
+          cp -r css js _site/
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment

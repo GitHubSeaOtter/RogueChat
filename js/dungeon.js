@@ -1,232 +1,299 @@
-// NetHack 参考の複数レベル生成：部屋＋通路 / 迷路 / 洞窟 / 大部屋。罠も配置。
-
-export const TILE = {
-  WALL: '#',
-  FLOOR: '.',
-  DOOR: '+',
-  STAIRS_DOWN: '>',
+export const WIDTH = 43,
+  HEIGHT = 25,
+  LAST_FLOOR = 5;
+export const THEMES = [
+  {
+    name: "忘れられた水路",
+    flavor: "壁の隙間を水が歌う。誰かの焚き火がまだ温かい。",
+    tiles: ["~", "~", "="],
+    enemies: ["rat", "goblin"],
+  },
+  {
+    name: "糸紡ぎの庭",
+    flavor: "根は石を縫い、糸は暗がりを結ぶ。名前のないものが芽吹く。",
+    tiles: ['"', '"', "~"],
+    enemies: ["spider", "goblin"],
+  },
+  {
+    name: "灰の書庫",
+    flavor: "読まれなかった物語が、燃え残った頁の間を歩いている。",
+    tiles: ["=", "^", '"'],
+    enemies: ["archer", "moth"],
+  },
+  {
+    name: "逆さの天文台",
+    flavor: "足元の水に星が浮く。空を忘れた観測者があなたを待つ。",
+    tiles: ["~", "=", "^"],
+    enemies: ["moth", "archer", "spider"],
+  },
+  {
+    name: "まだない世界の心臓",
+    flavor: "最後の扉の向こうで、ひとつの星が書き手を待っている。",
+    tiles: ["~", '"', "="],
+    enemies: ["archer", "goblin"],
+  },
+];
+export const TILES = {
+  "#": {
+    name: "石壁",
+    detail: "視線を遮る。掘る、溶かす、説得する――自由行動で道を開ける。",
+  },
+  ".": { name: "石床", detail: "何もない場所にも、何かを生み出せる。" },
+  "+": {
+    name: "閉じた扉",
+    detail: "ぶつかると開く。開けるのに1ターン。視線を遮る。",
+  },
+  "/": { name: "開いた扉", detail: "通行できる。" },
+  "~": { name: "浅い水", detail: "通行可能。炎上を消す。火は広がらない。" },
+  '"': { name: "蜘蛛の糸", detail: "踏むと1ターン拘束。次の移動で抜ける。" },
+  "=": { name: "油だまり", detail: "通行可能。隣の火から引火する。" },
+  "^": {
+    name: "露出した罠",
+    detail: "踏むたび4ダメージ。迂回や自由行動で解除できる。",
+  },
+  "*": {
+    name: "炎",
+    detail:
+      "このマスにいると毎ターン3ダメージ。各ターン、隣接する油へ広がる。敵にも作用。",
+  },
+  ">": {
+    name: "下り階段",
+    detail: "上に立って「先へ進む」。次の階でHP＋4、集中＋3。",
+  },
+  "<": { name: "入口", detail: "帰還の巻物の着地点。" },
+  0: {
+    name: "星の核",
+    detail: "守護者を倒すか交渉で鎮め、ここで「星を持ち帰る」。",
+  },
+  "&": { name: "野営地", detail: "ここでの野営は糧食を消費しない。各階1回。" },
 };
-
-export const MAP_W = 48;
-export const MAP_H = 32;
-
-export const LAYOUTS = ['rooms', 'maze', 'cavern', 'bigroom'];
-
-function randint(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
-
-function makeGrid(fill) {
-  const g = [];
-  for (let y = 0; y < MAP_H; y++) g.push(new Array(MAP_W).fill(fill));
-  return g;
+export const ENEMIES = {
+  rat: {
+    name: "水路ねずみ",
+    symbol: "r",
+    hp: 7,
+    attack: 4,
+    range: 1,
+    behavior: "melee",
+    tags: ["獣", "臆病"],
+    detail: "噛みつき。予告した1マスを攻撃する。",
+  },
+  goblin: {
+    name: "拾い屋ゴブリン",
+    symbol: "g",
+    hp: 12,
+    attack: 5,
+    range: 1,
+    behavior: "melee",
+    tags: ["言葉", "欲深い"],
+    detail: "短剣。食料や道具をめぐる交渉が得意。",
+  },
+  spider: {
+    name: "糸紡ぎ",
+    symbol: "s",
+    hp: 10,
+    attack: 4,
+    range: 1,
+    behavior: "poison",
+    tags: ["獣", "糸", "火に弱い"],
+    detail: "噛みつき＋毒（2ターン、各2ダメージ）。",
+  },
+  archer: {
+    name: "頁の射手",
+    symbol: "a",
+    hp: 12,
+    attack: 7,
+    range: 5,
+    behavior: "ranged",
+    tags: ["紙", "言葉"],
+    detail: "射撃。予告マスから動けば避けられる。壁と扉で視線を切れる。",
+  },
+  moth: {
+    name: "記憶喰い",
+    symbol: "m",
+    hp: 13,
+    attack: 5,
+    range: 3,
+    behavior: "drain",
+    tags: ["魔法", "光"],
+    detail: "記憶の針。被弾時に集中を2失う。",
+  },
+  warden: {
+    name: "未完の守護者",
+    symbol: "W",
+    hp: 36,
+    attack: 10,
+    range: 2,
+    behavior: "slam",
+    tags: ["言葉", "孤独", "守護"],
+    detail: "大振り。予告した十字5マスを攻撃。力でも、言葉でも越えられる。",
+  },
+};
+export function distance(a, b) {
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 }
-
-function center(room) {
-  return { x: Math.floor(room.x + room.w / 2), y: Math.floor(room.y + room.h / 2) };
-}
-
-function collectFloorCells(grid) {
-  const cells = [];
-  for (let y = 0; y < MAP_H; y++) {
-    for (let x = 0; x < MAP_W; x++) {
-      if (grid[y][x] === TILE.FLOOR) cells.push({ x, y });
+export function lineOfSight(grid, a, b) {
+  let x = a.x,
+    y = a.y;
+  const dx = Math.abs(b.x - x),
+    dy = Math.abs(b.y - y),
+    sx = x < b.x ? 1 : -1,
+    sy = y < b.y ? 1 : -1;
+  let err = dx - dy;
+  while (x !== b.x || y !== b.y) {
+    const e = err * 2;
+    if (
+      e > -dy &&
+      e < dx &&
+      ("#+".includes(grid[y]?.[x + sx] || "#") ||
+        "#+".includes(grid[y + sy]?.[x] || "#"))
+    )
+      return false;
+    if (e > -dy) {
+      err -= dy;
+      x += sx;
     }
+    if (e < dx) {
+      err += dx;
+      y += sy;
+    }
+    if (x === b.x && y === b.y) return true;
+    if (!grid[y]?.[x] || "#+".includes(grid[y][x])) return false;
   }
-  return cells;
+  return true;
 }
-
-// --- 部屋＋通路 ---
-function genRooms(floor) {
-  const grid = makeGrid(TILE.WALL);
+export function generateDungeon(floor, random, makeId) {
+  const theme = THEMES[floor - 1];
+  const grid = Array.from({ length: HEIGHT }, () => Array(WIDTH).fill("#"));
   const rooms = [];
-  const maxRooms = 8 + Math.min(floor, 6);
-  const overlap = (a, b) =>
-    a.x <= b.x + b.w + 1 && a.x + a.w + 1 >= b.x &&
-    a.y <= b.y + b.h + 1 && a.y + a.h + 1 >= b.y;
-
-  for (let i = 0; i < maxRooms; i++) {
-    const w = randint(4, 9), h = randint(3, 6);
-    const x = randint(1, MAP_W - w - 2), y = randint(1, MAP_H - h - 2);
-    const room = { x, y, w, h };
-    if (rooms.some((r) => overlap(r, room))) continue;
-    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) grid[yy][xx] = TILE.FLOOR;
-    if (rooms.length > 0) {
-      const a = center(rooms[rooms.length - 1]), b = center(room);
-      if (Math.random() < 0.5) {
-        for (let xx = Math.min(a.x, b.x); xx <= Math.max(a.x, b.x); xx++) grid[a.y][xx] = TILE.FLOOR;
-        for (let yy = Math.min(a.y, b.y); yy <= Math.max(a.y, b.y); yy++) grid[yy][b.x] = TILE.FLOOR;
-      } else {
-        for (let yy = Math.min(a.y, b.y); yy <= Math.max(a.y, b.y); yy++) grid[yy][a.x] = TILE.FLOOR;
-        for (let xx = Math.min(a.x, b.x); xx <= Math.max(a.x, b.x); xx++) grid[b.y][xx] = TILE.FLOOR;
+  // Nine connected rooms; corridors are carved after rooms to guarantee reachability.
+  for (let row = 0; row < 3; row++)
+    for (let col = 0; col < 3; col++) {
+      const x = 2 + col * 14 + Math.floor(random() * 2),
+        y = 1 + row * 8 + Math.floor(random() * 2);
+      const w = 7 + Math.floor(random() * 4),
+        h = 4 + Math.floor(random() * 2);
+      const room = {
+        x,
+        y,
+        w,
+        h,
+        cx: x + Math.floor(w / 2),
+        cy: y + Math.floor(h / 2),
+      };
+      rooms.push(room);
+      for (let yy = y; yy < y + h; yy++)
+        for (let xx = x; xx < x + w; xx++) grid[yy][xx] = ".";
+    }
+  const connect = (a, b) => {
+    let x = a.cx,
+      y = a.cy;
+    while (x !== b.cx) {
+      grid[y][x] = ".";
+      x += Math.sign(b.cx - x);
+    }
+    while (y !== b.cy) {
+      grid[y][x] = ".";
+      y += Math.sign(b.cy - y);
+    }
+    grid[y][x] = ".";
+  };
+  for (let i = 1; i < rooms.length; i++) connect(rooms[i - 1], rooms[i]);
+  connect(rooms[0], rooms[3]);
+  connect(rooms[3], rooms[6]);
+  connect(rooms[1], rooms[4]);
+  const start = { x: rooms[0].cx, y: rooms[0].cy },
+    exit = { x: rooms[8].cx, y: rooms[8].cy };
+  const occupied = new Set([`${start.x},${start.y}`, `${exit.x},${exit.y}`]);
+  if (floor === LAST_FLOOR) occupied.add(`${exit.x - 1},${exit.y}`);
+  const spot = (room) => {
+    for (let i = 0; i < 100; i++) {
+      const pos = {
+        x: room.x + Math.floor(random() * room.w),
+        y: room.y + Math.floor(random() * room.h),
+      };
+      const key = `${pos.x},${pos.y}`;
+      if (!occupied.has(key)) {
+        occupied.add(key);
+        return pos;
       }
     }
-    rooms.push(room);
-  }
-  return grid;
-}
-
-// --- 迷路 ---
-function genMaze() {
-  const grid = makeGrid(TILE.WALL);
-  const sx = 1, sy = 1;
-  grid[sy][sx] = TILE.FLOOR;
-  const stack = [{ x: sx, y: sy }];
-  const dirs = [[0, -2], [0, 2], [-2, 0], [2, 0]];
-  while (stack.length) {
-    const cur = stack[stack.length - 1];
-    const opts = [];
-    for (const [dx, dy] of dirs) {
-      const nx = cur.x + dx, ny = cur.y + dy;
-      if (nx > 0 && ny > 0 && nx < MAP_W - 1 && ny < MAP_H - 1 && grid[ny][nx] === TILE.WALL) {
-        opts.push([dx, dy]);
-      }
+    throw new Error("Room exhausted");
+  };
+  const enemies = [],
+    drops = [];
+  for (let i = 1; i < rooms.length; i++) {
+    const room = rooms[i];
+    for (let n = 0; n < 2; n++) {
+      const p = spot(room);
+      grid[p.y][p.x] = theme.tiles[Math.floor(random() * theme.tiles.length)];
     }
-    if (opts.length === 0) { stack.pop(); continue; }
-    const [dx, dy] = opts[randint(0, opts.length - 1)];
-    grid[cur.y + dy / 2][cur.x + dx / 2] = TILE.FLOOR;
-    grid[cur.y + dy][cur.x + dx] = TILE.FLOOR;
-    stack.push({ x: cur.x + dx, y: cur.y + dy });
-  }
-  // 少しだけ壁を抜いてループを作る（行き止まり地獄を緩和）
-  for (let i = 0; i < 30; i++) {
-    const x = randint(1, MAP_W - 2), y = randint(1, MAP_H - 2);
-    if (grid[y][x] === TILE.WALL &&
-        grid[y][x - 1] === TILE.FLOOR && grid[y][x + 1] === TILE.FLOOR) grid[y][x] = TILE.FLOOR;
-  }
-  return grid;
-}
-
-// --- 洞窟（セルオートマトン）---
-function genCavern() {
-  let grid = makeGrid(TILE.WALL);
-  for (let y = 1; y < MAP_H - 1; y++) {
-    for (let x = 1; x < MAP_W - 1; x++) {
-      grid[y][x] = Math.random() < 0.45 ? TILE.WALL : TILE.FLOOR;
+    if (i !== 1) {
+      const type = theme.enemies[Math.floor(random() * theme.enemies.length)],
+        def = ENEMIES[type];
+      enemies.push({
+        ...def,
+        ...spot(room),
+        type,
+        id: makeId(),
+        hp: def.hp + floor - 1,
+        maxHp: def.hp + floor - 1,
+        attack: def.attack + Math.floor(floor / 2),
+        intent: null,
+        stunned: 0,
+        burning: 0,
+        friendly: false,
+      });
     }
+    const key =
+      i === 1
+        ? "tonic"
+        : [
+            "tonic",
+            "focus",
+            "smoke",
+            "oil",
+            "ration",
+            floor > 2 ? "blade" : "chalk",
+            "mail",
+          ][Math.floor(random() * 7)];
+    drops.push({ ...spot(room), key, id: makeId() });
   }
-  for (let step = 0; step < 5; step++) {
-    const next = makeGrid(TILE.WALL);
-    for (let y = 1; y < MAP_H - 1; y++) {
-      for (let x = 1; x < MAP_W - 1; x++) {
-        let walls = 0;
-        for (let dy = -1; dy <= 1; dy++)
-          for (let dx = -1; dx <= 1; dx++)
-            if (!(dx === 0 && dy === 0) && grid[y + dy][x + dx] === TILE.WALL) walls++;
-        next[y][x] = walls >= 5 ? TILE.WALL : TILE.FLOOR;
-      }
+  if (floor === LAST_FLOOR) {
+    const def = ENEMIES.warden;
+    enemies.push({
+      ...def,
+      x: exit.x - 1,
+      y: exit.y,
+      type: "warden",
+      id: makeId(),
+      maxHp: def.hp,
+      intent: null,
+      stunned: 0,
+      burning: 0,
+      friendly: false,
+    });
+  }
+  const camp = spot(rooms[4]);
+  grid[camp.y][camp.x] = "&";
+  // Place doors only in one-cell passages, without sealing room interiors.
+  for (let y = 1; y < HEIGHT - 1; y++)
+    for (let x = 1; x < WIDTH - 1; x++) {
+      if (grid[y][x] !== "." || occupied.has(`${x},${y}`)) continue;
+      if (grid[y - 1][x] === "#" && grid[y + 1][x] === "#" && random() < 0.08)
+        grid[y][x] = "+";
     }
-    grid = next;
-  }
-  return keepLargestRegion(grid);
-}
-
-// --- 大部屋 ---
-function genBigRoom() {
-  const grid = makeGrid(TILE.WALL);
-  const x0 = 2, y0 = 2, x1 = MAP_W - 3, y1 = MAP_H - 3;
-  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) grid[y][x] = TILE.FLOOR;
-  // 柱をいくつか
-  for (let i = 0; i < 14; i++) {
-    const x = randint(x0 + 2, x1 - 2), y = randint(y0 + 2, y1 - 2);
-    grid[y][x] = TILE.WALL;
-  }
-  return grid;
-}
-
-// 最大連結領域だけ残す
-function keepLargestRegion(grid) {
-  const seen = makeGrid(false);
-  let best = [];
-  for (let y = 1; y < MAP_H - 1; y++) {
-    for (let x = 1; x < MAP_W - 1; x++) {
-      if (grid[y][x] !== TILE.FLOOR || seen[y][x]) continue;
-      const region = [];
-      const stack = [{ x, y }];
-      seen[y][x] = true;
-      while (stack.length) {
-        const c = stack.pop();
-        region.push(c);
-        for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
-          const nx = c.x + dx, ny = c.y + dy;
-          if (nx > 0 && ny > 0 && nx < MAP_W - 1 && ny < MAP_H - 1 &&
-              grid[ny][nx] === TILE.FLOOR && !seen[ny][nx]) {
-            seen[ny][nx] = true;
-            stack.push({ x: nx, y: ny });
-          }
-        }
-      }
-      if (region.length > best.length) best = region;
-    }
-  }
-  const out = makeGrid(TILE.WALL);
-  for (const c of best) out[c.y][c.x] = TILE.FLOOR;
-  return out;
-}
-
-// BFS で start から最遠の床セルを返す
-function farthestCell(grid, start) {
-  const dq = [start];
-  const seen = makeGrid(false);
-  seen[start.y][start.x] = true;
-  let last = start;
-  let head = 0;
-  while (head < dq.length) {
-    const c = dq[head++];
-    last = c;
-    for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
-      const nx = c.x + dx, ny = c.y + dy;
-      if (nx >= 0 && ny >= 0 && nx < MAP_W && ny < MAP_H &&
-          grid[ny][nx] === TILE.FLOOR && !seen[ny][nx]) {
-        seen[ny][nx] = true;
-        dq.push({ x: nx, y: ny });
-      }
-    }
-  }
-  return last;
-}
-
-export function isWalkable(tile) {
-  return tile === TILE.FLOOR || tile === TILE.DOOR || tile === TILE.STAIRS_DOWN;
-}
-
-// layout: 指定が無ければ階に応じて抽選
-export function generateDungeon(floor, layout) {
-  let kind = LAYOUTS.includes(layout) ? layout : null;
-  if (!kind) {
-    const r = Math.random();
-    if (floor >= 3 && r < 0.18) kind = 'maze';
-    else if (r < 0.4) kind = 'cavern';
-    else if (r < 0.5) kind = 'bigroom';
-    else kind = 'rooms';
-  }
-
-  let grid;
-  if (kind === 'maze') grid = genMaze();
-  else if (kind === 'cavern') grid = genCavern();
-  else if (kind === 'bigroom') grid = genBigRoom();
-  else grid = genRooms(floor);
-
-  let cells = collectFloorCells(grid);
-  if (cells.length < 20) { // 生成失敗時の保険
-    grid = genRooms(floor);
-    cells = collectFloorCells(grid);
-    kind = 'rooms';
-  }
-
-  const start = cells[randint(0, cells.length - 1)];
-  const stairs = farthestCell(grid, start);
-  grid[stairs.y][stairs.x] = TILE.STAIRS_DOWN;
-
-  // 罠を配置（隠れている）
-  const traps = [];
-  const trapTypes = ['dart', 'poison', 'teleport', 'pit'];
-  const trapCount = randint(2, 4 + Math.min(floor, 6));
-  for (let i = 0; i < trapCount; i++) {
-    const c = cells[randint(0, cells.length - 1)];
-    if (c.x === start.x && c.y === start.y) continue;
-    if (c.x === stairs.x && c.y === stairs.y) continue;
-    if (traps.some((t) => t.x === c.x && t.y === c.y)) continue;
-    traps.push({ x: c.x, y: c.y, type: trapTypes[randint(0, trapTypes.length - 1)], known: false });
-  }
-
-  return { grid, start, traps, layout: kind };
+  grid[start.y][start.x] = "<";
+  grid[exit.y][exit.x] = floor === LAST_FLOOR ? "0" : ">";
+  return {
+    grid,
+    rooms,
+    start,
+    exit,
+    enemies,
+    drops,
+    objects: [],
+    theme,
+    campUsed: false,
+  };
 }
