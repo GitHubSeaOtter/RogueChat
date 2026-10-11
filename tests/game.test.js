@@ -167,7 +167,9 @@ test("smoke cancels attacks for three turns and never creates a surprise strike"
   const e = enemy(g);
   g.move(0, 0);
   const hp = g.player.hp;
-  g.useItem(g.player.inventory.find((i) => i.key === "smoke").id);
+  const smoke = g.player.inventory.find((i) => i.key === "smoke");
+  smoke.modifier = 0;
+  g.useItem(smoke.id);
   assert.equal(g.player.hp, hp);
   assert.equal(e.intent, null);
   g.move(0, 0);
@@ -261,7 +263,7 @@ test("negative and exaggerated model values are bounded; chance and power follow
     { ...proposal("heal"), difficulty: -100, effort: 999, hp: 99999 },
     "奇跡",
   );
-  assert.equal(a.difficulty, 2);
+  assert.equal(a.difficulty, 3);
   assert.equal(a.effort, 5);
   assert.equal(a.cost, 5);
   assert.equal(a.potency, 14);

@@ -1,12 +1,12 @@
 export const PROVIDERS = {
   openai: {
     name: "OpenAI",
-    model: "gpt-4.1-mini",
+    model: "gpt-6-luna",
     url: "https://api.openai.com/v1/responses",
   },
   anthropic: {
     name: "Anthropic",
-    model: "claude-haiku-4-5-20251001",
+    model: "claude-haiku-5-5",
     url: "https://api.anthropic.com/v1/messages",
   },
 };
@@ -79,6 +79,7 @@ export const GM_PROMPT = `あなたはRogueChat「まだない世界」のGM。�
 - move: 視界内4マス以内の通行可能な空きマス(x,y)。間の壁を越える瞬間移動も可。
 - terrain: 視界内3マス以内の(x,y)をsymbolの地形に変更。symbolは .床 / ~水 / \"糸 / =油 / *火 の1文字のみ。壁を床に変えるのも可。階段< >、星0、野営地&は変更禁止。
 - create: 3マス以内の空いた通行可能マスに独創的な名前name/detail/ASCII1文字symbolの道具を生む。近くで判定＋1、拾って持ち歩ける。性質はskillに連動。追加の戦闘能力や無敵効果は約束しない。世界には新しい名前と意味を残せる。
+- 選択アイテムselectedItemがある場合、その個別の名前・性質を行動の因果に使う。通常の基本効果は固定だが、自由行動は名前に即した別の効果も提案できる。未識別の補正値を創作して明示しない。使い切るならそのidをconsumesへ入れ、永久所持道具は参照だけなら消費しない。
 - consumes: 本当に使い切る材料のinventoryのidのみ。最大2個。持っている道具を参照するだけなら消費しない。消費ありで判定＋1。所持品なしから材料を捏造しない。
 - 各effectにはkind,target,x,y,name,detail,symbolを全て入れる。非使用フィールドはtarget空文字、座標はplayerの現在地、他は空文字。敵idを名前で代用しない。
 - 環境・敵の特性・過去の記憶・人格を使って、一貫した因果を作る。例：紙の射手の注意を物語でそらす→stun/spirit、油を燃やす→terrain/wit、糸を結界に編む→ward/wit、壁に退いてもらう→terrain/spirit。`;

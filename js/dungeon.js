@@ -1,3 +1,4 @@
+import { makeItem } from "./items.js";
 export const WIDTH = 43,
   HEIGHT = 25,
   LAST_FLOOR = 5;
@@ -257,7 +258,13 @@ export function generateDungeon(floor, random, makeId) {
             floor > 2 ? "blade" : "chalk",
             "mail",
           ][Math.floor(random() * 7)];
-    drops.push({ ...spot(room), key, id: makeId() });
+    const id = makeId();
+    drops.push({
+      ...spot(room),
+      key,
+      id,
+      item: makeItem(key, id, { random, source: theme.name }),
+    });
   }
   if (floor === LAST_FLOOR) {
     const def = ENEMIES.warden;
@@ -285,7 +292,14 @@ export function generateDungeon(floor, random, makeId) {
     }
   grid[start.y][start.x] = "<";
   grid[exit.y][exit.x] = floor === LAST_FLOOR ? "0" : ">";
+  const secrets = [];
+  for (const room of [rooms[2], rooms[5]]) {
+    const point = { x: room.x - 1, y: room.cy };
+    if (grid[point.y][point.x] === "#")
+      secrets.push({ ...point, found: false });
+  }
   return {
+    secrets,
     grid,
     rooms,
     start,

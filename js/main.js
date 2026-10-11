@@ -1,6 +1,7 @@
+import { bindRepeatControls } from "./repeat.js";
 import { Game, SAVE_KEY } from "./game.js";
 import { WIDTH, HEIGHT, LAST_FLOOR, distance, TILES } from "./dungeon.js";
-import { BACKGROUNDS, SKILLS } from "./items.js";
+import { BACKGROUNDS, SKILLS, groupItems, itemSummary } from "./items.js";
 import { PROVIDERS, proposeAction, localProposal } from "./llm.js";
 
 const $ = (id) => document.getElementById(id);
@@ -45,7 +46,10 @@ for (const provider of Object.keys(PROVIDERS))
       "",
     remember: !!store.read(`roguechat_v2_key_${provider}`),
     model:
-      typeof meta.models?.[provider] === "string"
+      typeof meta.models?.[provider] === "string" &&
+      !["gpt-4.1-mini", "claude-haiku-4-5-20251001"].includes(
+        meta.models[provider],
+      )
         ? meta.models[provider]
         : PROVIDERS[provider].model,
   };
@@ -59,6 +63,11 @@ let game = null,
   lastMessage = null,
   endingShown = false;
 let toastTimer;
+let activeTab = "controls",
+  activeItemId = null,
+  activeGroupKey = null,
+  keyboardDirection = null;
+let stopRepeat = () => {};
 function toast(text) {
   $("toast").textContent = text;
   $("toast").hidden = false;
@@ -69,10 +78,14 @@ function config() {
   return { provider: activeProvider, ...credentials[activeProvider] };
 }
 function open(id) {
+  stopRepeat();
   if (!$(id).open) $(id).showModal();
 }
 function close(id) {
   $(id).close();
+  requestAnimationFrame(() => {
+    if (game?.ended && !endingShown && !hasModal()) showEnding();
+  });
 }
 function hasModal() {
   return [...document.querySelectorAll("dialog")].some((d) => d.open);
@@ -113,16 +126,32 @@ function renderMode() {
 function renderMap() {
   if (!game) return;
   const p = game.player,
+    map = $("map"),
     mobile = window.innerWidth <= 760;
-  const cols = mobile ? 25 : WIDTH,
-    rows = mobile ? 19 : HEIGHT;
+  const availableWidth = Math.max(120, map.clientWidth - 6),
+    availableHeight = Math.max(40, map.clientHeight - 6);
+  const targetSize = mobile ? 15 : 20;
+  const cols = Math.max(
+    11,
+    Math.min(mobile ? 25 : WIDTH, Math.floor(availableWidth / targetSize)),
+  );
+  const rows = Math.max(
+    3,
+    Math.min(HEIGHT, Math.floor(availableHeight / targetSize)),
+  );
+  const cell = Math.max(
+    5,
+    Math.min(22, availableWidth / cols, availableHeight / rows),
+  );
+  map.style.setProperty("--rows", rows);
+  map.style.setProperty("--cell", `${cell}px`);
+  map.style.setProperty("--glyph-size", `${Math.max(7, cell * 0.9)}px`);
   const ox = Math.max(0, Math.min(WIDTH - cols, p.x - Math.floor(cols / 2))),
     oy = Math.max(0, Math.min(HEIGHT - rows, p.y - Math.floor(rows / 2)));
   const threats = new Set(
     game.threats().flatMap((t) => t.tiles.map((p) => `${p.x},${p.y}`)),
   );
-  const map = $("map"),
-    fragment = document.createDocumentFragment();
+  const fragment = document.createDocumentFragment();
   map.style.setProperty("--cols", cols);
   for (let y = oy; y < oy + rows; y++)
     for (let x = ox; x < ox + cols; x++) {
@@ -198,6 +227,7 @@ function selectCell(x, y) {
   $("inspect-detail").textContent = selected.detail;
   $("selected-coordinate").textContent =
     `選択中 (${x}, ${y})${game.visible[y]?.[x] ? " / 行動の対象" : " / 視界外"}。移動は方向ボタンで。`;
+  switchTab("observe");
   renderMap();
 }
 function renderThreats() {
@@ -239,25 +269,70 @@ function renderThreats() {
     list.append(row);
   }
 }
-function renderLog() {
-  const log = $("log"),
-    latest = game.messages.at(-1);
-  if (latest === lastMessage) return;
-  const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 70;
-  const start = game.messages.indexOf(lastMessage);
-  if (start < 0) log.replaceChildren();
-  for (const message of game.messages.slice(start + 1)) {
-    const entry = el("div", undefined, `log-entry ${message.kind}`);
-    entry.append(
-      el("time", `TURN ${String(message.turn).padStart(3, "0")}`),
-      el("p", message.text),
-    );
-    log.append(entry);
-  }
-  while (log.children.length > 70) log.firstElementChild.remove();
-  lastMessage = latest;
-  if (nearBottom || start < 0) log.scrollTop = log.scrollHeight;
+function logEntry(message) {
+  const entry = el("div", undefined, `log-entry ${message.kind}`);
+  entry.append(
+    el("time", String(message.turn).padStart(3, "0")),
+    el("p", message.text),
+  );
+  entry.title = message.text;
+  return entry;
 }
+function renderLog() {
+  const latest = game.messages.at(-1);
+  if (latest === lastMessage) return;
+  $("log").replaceChildren(...game.messages.slice(-3).map(logEntry));
+  lastMessage = latest;
+}
+function switchTab(tab, focus = false) {
+  if (!["controls", "command", "inventory", "observe"].includes(tab)) return;
+  stopRepeat();
+  activeTab = tab;
+  for (const button of document.querySelectorAll("[data-tab]")) {
+    const chosen = button.dataset.tab === tab;
+    button.setAttribute("aria-selected", String(chosen));
+    button.tabIndex = chosen ? 0 : -1;
+    $(button.getAttribute("aria-controls")).hidden = !chosen;
+    if (chosen && focus) button.focus();
+  }
+  if (tab === "inventory" && game) renderInventory();
+  requestAnimationFrame(renderMap);
+}
+for (const tab of document.querySelectorAll("[data-tab]")) {
+  tab.addEventListener("click", () => switchTab(tab.dataset.tab));
+  tab.addEventListener("keydown", (event) => {
+    const keys = ["ArrowLeft", "ArrowRight", "Home", "End"];
+    if (!keys.includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const tabs = ["controls", "command", "inventory", "observe"];
+    let index = tabs.indexOf(activeTab);
+    index =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? 3
+          : (index + (event.key === "ArrowRight" ? 1 : 3)) % 4;
+    switchTab(tabs[index], true);
+  });
+}
+$("history-button").addEventListener("click", () => {
+  if (!game) return;
+  $("full-history").replaceChildren(...game.messages.map(logEntry));
+  open("history-dialog");
+  $("full-history").lastElementChild?.scrollIntoView({ block: "end" });
+});
+function fitViewport() {
+  const h = window.visualViewport?.height || innerHeight;
+  document.documentElement.dataset.viewport =
+    h < 420 ? "tiny" : h < 620 ? "short" : "normal";
+  document.documentElement.style.setProperty("--viewport-height", `${h}px`);
+  requestAnimationFrame(renderMap);
+}
+window.visualViewport?.addEventListener("resize", fitViewport);
+window.addEventListener("resize", fitViewport);
+new ResizeObserver(() => requestAnimationFrame(renderMap)).observe($("map"));
+fitViewport();
 function render() {
   if (!game) return;
   const p = game.player;
@@ -290,6 +365,8 @@ function render() {
     .filter(Boolean)
     .join(" / ");
   $("supply-count").textContent = `${p.supplies}回`;
+  $("hunger-text").textContent = `満腹 ${p.satiety ?? 100}`;
+  $("hunger-text").style.color = p.satiety <= 20 ? "var(--red)" : "";
   const tile = game.tile(p.x, p.y);
   const interact = $("interact-button");
   interact.replaceChildren(
@@ -314,6 +391,12 @@ function render() {
   renderThreats();
   renderLog();
   renderMode();
+  if (activeItemId && !game.resolveItem(activeItemId)) activeItemId = null;
+  $("active-item").hidden = !activeItemId;
+  if (activeItemId)
+    $("active-item-name").textContent =
+      `名前を活かす：${game.resolveItem(activeItemId).name}`;
+  if (activeTab === "inventory") renderInventory();
   if (selected) {
     selected = game.inspect(selected.x, selected.y);
     $("inspect-title").textContent = selected.title;
@@ -362,11 +445,16 @@ async function propose(command, builtin = false) {
       requestController = new AbortController();
       $("request-status").hidden = false;
       render();
-      raw = await proposeAction(config(), game.context(selected), command, {
-        signal: requestController.signal,
-      });
+      raw = await proposeAction(
+        config(),
+        game.context(selected, builtin ? null : activeItemId),
+        command,
+        {
+          signal: requestController.signal,
+        },
+      );
     }
-    const proposal = game.prepare(raw, command);
+    const proposal = game.prepare(raw, command, builtin ? null : activeItemId);
     renderProposal(
       proposal,
       builtin || !config().key ? "内蔵ルール" : PROVIDERS[activeProvider].name,
@@ -453,15 +541,22 @@ $("command-input").addEventListener("keydown", (event) => {
 for (const suggestion of document.querySelectorAll("[data-command]"))
   suggestion.addEventListener("click", () => {
     $("command-input").value = suggestion.dataset.command;
+    activeItemId = null;
     propose(suggestion.dataset.command, true);
   });
 $("cancel-request").addEventListener("click", () => requestController?.abort());
-for (const direction of document.querySelectorAll("[data-dx]"))
-  direction.addEventListener("click", () =>
-    perform(() =>
-      game.move(Number(direction.dataset.dx), Number(direction.dataset.dy)),
-    ),
-  );
+stopRepeat = bindRepeatControls(document.querySelectorAll("[data-dx]"), {
+  blocked,
+  next: (dx, dy) => game.runNextDir(dx, dy),
+  step: (dx, dy) => {
+    if (blocked()) return false;
+    const count = game.player.inventory.length;
+    const result = game.move(dx, dy);
+    if (result) save();
+    render();
+    return result && game.player.inventory.length === count;
+  },
+});
 $("interact-button").addEventListener("click", () =>
   perform(() => game.interact()),
 );
@@ -470,56 +565,200 @@ $("guard-button").addEventListener("click", () => propose("身を守る", true))
 
 function showInventory() {
   if (blocked()) return;
-  renderInventory();
-  open("inventory-dialog");
+  switchTab("inventory");
 }
 function renderInventory() {
   const p = game.player,
-    list = $("inventory-list");
-  list.replaceChildren();
+    groups = groupItems(p.inventory);
+  $("inventory-count").textContent = `${p.inventory.length}/18`;
   $("equipment-text").textContent =
-    `武器：${p.equipment.weapon?.name || "旅の短剣"} / 防具：${p.equipment.armor?.name || "旅装"} / ${p.inventory.length}/18個`;
-  if (!p.inventory.length)
-    list.append(
-      el("p", "今は何も持っていない。世界に道具をつくることもできる。"),
-    );
-  for (const item of p.inventory) {
-    const row = el("div", undefined, "inventory-item");
-    row.append(
-      el("h3", `${item.symbol} ${item.name}`),
-      el("p", `${item.detail} [${item.tags.join(" / ")}]`),
-    );
-    const actions = el("div", undefined, "item-actions");
-    if (item.kind !== "tool")
-      actions.append(
-        button(
-          ["weapon", "armor"].includes(item.kind) ? "装備する" : "使う",
-          () => {
-            const before = game.revision;
-            game.useItem(item.id, selected?.enemyId);
-            if (game.revision !== before) {
-              close("inventory-dialog");
-              save();
-            } else toast(game.messages.at(-1).text);
-            render();
-          },
-          "primary",
-        ),
+    `武器：${p.equipment.weapon?.name || "旅の短剣"} / 防具：${p.equipment.armor?.name || "旅装"}`;
+  for (const id of ["dock-inventory-list", "inventory-list"]) {
+    const list = $(id);
+    list.replaceChildren();
+    if (!groups.length)
+      list.append(
+        el("p", "持ち物はない。探索や創作で道具を手に入れよう。", "hint"),
       );
-    else actions.append(el("span", "所持するだけで判定を助ける", "hint"));
-    actions.append(
-      button("床に置く", () => {
-        game.dropItem(item.id);
-        close("inventory-dialog");
-        save();
-        render();
-      }),
-    );
-    row.append(actions);
-    list.append(row);
+    for (const group of groups) {
+      const row = button("", () => openGroup(group.key), "item-group");
+      row.dataset.group = group.key;
+      row.append(
+        el("strong", `${group.symbol} ${group.name}`),
+        el("b", `×${group.items.length} ›`),
+      );
+      list.append(row);
+    }
   }
 }
+function selectedInstance() {
+  return $("instance-select").value || activeGroupKey;
+}
+function openGroup(key) {
+  if (!game || game.ended || requestController) return;
+  if ($("inventory-dialog").open) close("inventory-dialog");
+  activeGroupKey = key;
+  const items = game.player.inventory.filter(
+    (i) => (i.key || "custom") === key,
+  );
+  if (!items.length) return;
+  $("group-title").textContent =
+    `${groupItems(items)[0].name} ×${items.length}`;
+  $("instance-select").replaceChildren(
+    new Option("おまかせ（名前を選ばない）", ""),
+    ...items.map(
+      (i) =>
+        new Option(
+          `${i.name}${i.identified ? " / 識別済み" : " / 未識別"}`,
+          i.id,
+        ),
+    ),
+  );
+  updateInstance();
+  open("group-dialog");
+}
+function updateInstance() {
+  const item = game.resolveItem(selectedInstance());
+  if (!item) return;
+  $("instance-detail").textContent =
+    `${item.name}：${itemSummary(item)}${item.lore ? ` / ${item.lore}` : ""}${item.source ? ` / 出自：${item.source}` : ""}`;
+  $("identify-info").textContent = item.identified
+    ? "識別済み：使用前に補正を確認できます。"
+    : `識別：集中1・1ターン / 成功率 ${game.identifyChance()}%。補正値はすでに固定されています。`;
+  $("item-identify").disabled = item.identified || game.player.focus < 1;
+  $("item-use").textContent = ["weapon", "armor"].includes(item.kind)
+    ? "装備する"
+    : "使う";
+}
+$("instance-select").addEventListener("change", updateInstance);
+function itemAction(action) {
+  const before = game.revision;
+  action();
+  if (game.revision !== before) {
+    close("group-dialog");
+    save();
+    render();
+  } else toast(game.messages.at(-1)?.text || "この操作はできません。");
+}
+$("item-use").addEventListener("click", () =>
+  itemAction(() => game.useItem(selectedInstance(), selected?.enemyId)),
+);
+$("item-identify").addEventListener("click", () =>
+  itemAction(() => game.identify(selectedInstance())),
+);
+$("item-throw").addEventListener("click", () =>
+  itemAction(() => game.throwItem(selectedInstance(), selected?.enemyId)),
+);
+$("item-drop").addEventListener("click", () =>
+  itemAction(() => game.dropItem(game.resolveItem(selectedInstance())?.id)),
+);
+$("item-language").addEventListener("click", () => {
+  const item = game.resolveItem(selectedInstance());
+  if (!item) return;
+  activeItemId = item.id;
+  close("group-dialog");
+  if ($("inventory-dialog").open) close("inventory-dialog");
+  switchTab("command");
+  $("command-input").value = `${item.name}を使って、`;
+  render();
+  $("command-input").focus();
+});
+$("clear-active-item").addEventListener("click", () => {
+  activeItemId = null;
+  render();
+});
 $("inventory-button").addEventListener("click", showInventory);
+$("equipment-button").addEventListener("click", () => {
+  renderInventory();
+  const list = $("inventory-list");
+  for (const [slot, item] of Object.entries(game.player.equipment))
+    if (item) {
+      const row = el("div", undefined, "inventory-item");
+      row.append(
+        el("h3", item.name),
+        el("p", itemSummary(item)),
+        button("外す（1ターン）", () => {
+          game.unequip(slot);
+          close("inventory-dialog");
+          save();
+          render();
+        }),
+      );
+      list.prepend(row);
+    }
+  open("inventory-dialog");
+});
+$("search-button").addEventListener("click", () =>
+  perform(() => game.search()),
+);
+$("door-button").addEventListener("click", () =>
+  perform(() => game.closeDoor(selected)),
+);
+$("kick-button").addEventListener("click", () =>
+  perform(() => game.kick(selected)),
+);
+function craftChoices(typeId, nameId) {
+  const key = $(typeId).value,
+    items = game.player.inventory.filter((i) => (i.key || "custom") === key);
+  $(nameId).replaceChildren(
+    new Option("おまかせ", ""),
+    ...items.map((i) => new Option(i.name, i.id)),
+  );
+}
+function craftSelections() {
+  return [
+    $("craft-instance-a").value || $("craft-type-a").value,
+    $("craft-instance-b").value || $("craft-type-b").value,
+  ];
+}
+function updateCraft() {
+  try {
+    const preview = game.craftPreview(...craftSelections());
+    $("craft-preview").textContent =
+      `${preview.a.name} × ${preview.b.name} → ${preview.recipe.name} / 成功率 ${preview.chance}% / 集中−3（現在${game.player.focus}）`;
+    $("craft-error").textContent =
+      game.player.focus < 3 ? "集中が足りません。" : "";
+    $("craft-execute").disabled = game.player.focus < 3 || preview.chance === 0;
+  } catch (error) {
+    $("craft-error").textContent = error.message;
+    $("craft-preview").textContent = "";
+    $("craft-execute").disabled = true;
+  }
+}
+function showCraft() {
+  if (blocked()) return;
+  const groups = groupItems(game.player.inventory);
+  for (const id of ["craft-type-a", "craft-type-b"])
+    $(id).replaceChildren(
+      ...groups.map((g) => new Option(`${g.name} ×${g.items.length}`, g.key)),
+    );
+  if (groups.length > 1) $("craft-type-b").selectedIndex = 1;
+  craftChoices("craft-type-a", "craft-instance-a");
+  craftChoices("craft-type-b", "craft-instance-b");
+  updateCraft();
+  open("craft-dialog");
+}
+for (const [type, name] of [
+  ["craft-type-a", "craft-instance-a"],
+  ["craft-type-b", "craft-instance-b"],
+]) {
+  $(type).addEventListener("change", () => {
+    craftChoices(type, name);
+    updateCraft();
+  });
+  $(name).addEventListener("change", updateCraft);
+}
+$("craft-button").addEventListener("click", showCraft);
+$("dock-craft-button").addEventListener("click", showCraft);
+$("craft-execute").addEventListener("click", () => {
+  const before = game.revision;
+  game.craft(...craftSelections());
+  if (game.revision !== before) {
+    close("craft-dialog");
+    save();
+    render();
+  } else updateCraft();
+});
 function showMemory() {
   if (!game || requestController) return;
   const list = $("memory-list");
@@ -647,10 +886,21 @@ window.addEventListener("keydown", (event) => {
   )
     return;
   const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  if (event.key === "S") {
+    event.preventDefault();
+    perform(() => game.search());
+    return;
+  }
   if (keymap[key]) {
     event.preventDefault();
-    if (!event.repeat || !game.visibleEnemies().some((e) => !e.friendly))
-      perform(() => game.move(...keymap[key]));
+    if (!event.repeat) {
+      keyboardDirection = keymap[key];
+      perform(() => game.move(...keyboardDirection));
+    } else if (key !== "." && keyboardDirection) {
+      const next = game.runNextDir(...keyboardDirection);
+      keyboardDirection = next;
+      if (next) perform(() => game.move(...next));
+    }
   } else if (key === "i") {
     event.preventDefault();
     showInventory();
@@ -665,13 +915,15 @@ window.addEventListener("keydown", (event) => {
     perform(() => game.interact());
   } else if (key === "/") {
     event.preventDefault();
+    switchTab("command");
     $("command-input").focus();
   } else if (key === "?") {
     event.preventDefault();
     open("help-dialog");
   }
 });
-window.addEventListener("resize", renderMap);
+window.addEventListener("keyup", () => (keyboardDirection = null));
+window.addEventListener("blur", () => (keyboardDirection = null));
 
 for (const [key, b] of Object.entries(BACKGROUNDS)) {
   const label = el("label", undefined, "background-card"),
@@ -726,6 +978,8 @@ $("start-form").addEventListener("submit", (event) => {
   };
   game = new Game({ ...profile, seed });
   selected = null;
+  activeItemId = null;
+  switchTab("controls");
   lastMessage = null;
   endingShown = false;
   $("inspect-title").textContent = "@ 旅人";

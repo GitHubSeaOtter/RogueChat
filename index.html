@@ -19,32 +19,32 @@
     <div class="app">
       <header class="topbar">
         <a class="brand" href="./" aria-label="RogueChat ホーム"
-          ><span class="brand-mark">@</span
-          ><span>RogueChat<small>まだない世界</small></span></a
+          ><span class="brand-mark">@</span> RogueChat</a
         >
         <div class="header-actions">
-          <button id="mode-button" class="mode-pill">内蔵ルール</button
-          ><button id="help-button" class="quiet">遊び方</button
+          <button id="mode-button" class="mode-pill">内蔵</button
+          ><button
+            id="help-button"
+            class="quiet"
+            aria-label="遊び方を開く"
+            title="遊び方"
+          >
+            ?</button
           ><button id="new-button" class="quiet">新しい旅</button>
         </div>
       </header>
       <main class="game-layout">
         <section class="expedition" aria-label="冒険">
           <div class="floor-heading">
-            <div>
-              <p class="eyebrow">THE UNWRITTEN / EXPEDITION</p>
-              <h1 id="floor-title">忘れられた水路</h1>
-            </div>
-            <span id="floor-badge">B1 / 5</span>
+            <h1 id="floor-title">まだない世界</h1>
+            <span id="floor-badge">B1 / 5</span><span id="level-text">Lv.1</span
+            ><span id="player-name">旅人</span>
           </div>
-          <p id="objective" class="objective">第五層の「星の核」を持ち帰る。</p>
-          <div class="vitals" aria-label="状態">
+          <p id="objective" class="sr-only">第五層の星を持ち帰る。</p>
+          <div class="vitals">
             <div class="vital">
-              <div>
-                <span>生命 <b id="hp-text">—</b></span
-                ><span id="player-name">旅人</span>
-              </div>
-              <progress
+              <span>HP <b id="hp-text">—</b></span
+              ><progress
                 id="hp-bar"
                 max="1"
                 value="1"
@@ -52,22 +52,19 @@
               ></progress>
             </div>
             <div class="vital focus">
-              <div>
-                <span>集中 <b id="focus-text">—</b></span
-                ><span id="level-text">Lv.1</span>
-              </div>
-              <progress
+              <span>集中 <b id="focus-text">—</b></span
+              ><progress
                 id="focus-bar"
                 max="1"
                 value="1"
                 aria-label="集中"
               ></progress>
             </div>
+            <span id="hunger-text" class="hunger">空腹 100</span>
           </div>
           <div class="map-shell">
             <div class="map-toolbar">
-              <span id="map-state"
-                ><i class="live-dot"></i> 時間は、あなたを待つ</span
+              <span id="map-state">時間は、あなたを待つ</span
               ><span id="turn-text">TURN 000</span>
             </div>
             <div
@@ -80,22 +77,43 @@
               <span
                 ><b class="player-key">@</b> あなた
                 <b class="enemy-key">a</b> 敵
-                <b class="danger-key">·</b> 攻撃予告</span
+                <b class="danger-key">·</b> 予告</span
               ><span id="coordinates">—</span>
             </div>
           </div>
+          <section class="compact-history" aria-label="直近の履歴">
+            <div
+              id="log"
+              role="log"
+              aria-live="polite"
+              aria-relevant="additions"
+            ></div>
+            <button id="history-button" class="quiet" aria-label="全履歴を開く">
+              履歴
+            </button>
+          </section>
           <div class="status-line">
-            <span id="combat-stats">—</span><span id="status-text"></span>
+            <span id="combat-stats">—</span><span id="status-text"></span
+            ><span id="save-status">自動保存</span
+            ><span id="seed-text" class="sr-only"></span>
           </div>
-          <div class="play-controls">
+        </section>
+      </main>
+      <footer class="control-dock">
+        <div class="tab-content">
+          <section
+            id="pane-controls"
+            role="tabpanel"
+            aria-labelledby="tab-controls"
+            class="play-controls"
+          >
             <div id="dpad" class="dpad" aria-label="移動">
               <button data-dx="-1" data-dy="-1" aria-label="左上へ移動">
                 ↖</button
               ><button data-dx="0" data-dy="-1" aria-label="上へ移動">↑</button
               ><button data-dx="1" data-dy="-1" aria-label="右上へ移動">
-                ↗
-              </button>
-              <button data-dx="-1" data-dy="0" aria-label="左へ移動">←</button
+                ↗</button
+              ><button data-dx="-1" data-dy="0" aria-label="左へ移動">←</button
               ><button
                 data-dx="0"
                 data-dy="0"
@@ -103,8 +121,8 @@
                 class="wait"
               >
                 ·</button
-              ><button data-dx="1" data-dy="0" aria-label="右へ移動">→</button>
-              <button data-dx="-1" data-dy="1" aria-label="左下へ移動">
+              ><button data-dx="1" data-dy="0" aria-label="右へ移動">→</button
+              ><button data-dx="-1" data-dy="1" aria-label="左下へ移動">
                 ↙</button
               ><button data-dx="0" data-dy="1" aria-label="下へ移動">↓</button
               ><button data-dx="1" data-dy="1" aria-label="右下へ移動">
@@ -112,18 +130,35 @@
               </button>
             </div>
             <div class="action-buttons">
-              <button id="interact-button" class="primary">
-                先へ進む <span>&gt;</span></button
-              ><button id="inventory-button">持ち物 <kbd>I</kbd></button
+              <button id="interact-button" class="primary">先へ進む &gt;</button
+              ><button id="inventory-button">持ち物</button
               ><button id="rest-button">
-                野営 <span id="supply-count">3回</span></button
-              ><button id="guard-button">身を守る <kbd>G</kbd></button>
+                野営 <span id="supply-count">2回</span></button
+              ><button id="guard-button">護る</button
+              ><button id="search-button">探索 <kbd>⇧S</kbd></button
+              ><button id="door-button">扉を閉じる</button
+              ><button
+                id="kick-button"
+                title="隣の敵や扉を選択。集中1・1ターン"
+              >
+                蹴る −1</button
+              ><button id="craft-button">合成</button>
             </div>
-          </div>
-          <section class="imagination" aria-label="自由行動">
+          </section>
+          <section
+            id="pane-command"
+            role="tabpanel"
+            aria-labelledby="tab-command"
+            class="imagination"
+            hidden
+          >
             <div class="section-heading">
               <h2>世界に、何をする？</h2>
               <span id="action-source">内蔵アクション</span>
+            </div>
+            <div id="active-item" hidden>
+              <span id="active-item-name"></span
+              ><button id="clear-active-item" class="quiet">選択解除</button>
             </div>
             <form id="command-form">
               <label for="command-input" class="sr-only">自由行動</label
@@ -131,72 +166,154 @@
                 id="command-input"
                 rows="2"
                 maxlength="500"
-                placeholder="例：影をロープに編んで、射手の弓を絡め取る"
+                placeholder="例：雨音の慈雨を霧にして、射手の弓を湿らせる"
               ></textarea
               ><button id="propose-button" type="submit" class="primary">
-                提案を見る <span>↗</span>
+                提案を見る
               </button>
             </form>
             <div id="suggestions" class="suggestions">
-              <button data-command="敵を足止めする">敵を足止めする</button
-              ><button data-command="敵を説得する">敵を説得する</button
+              <button data-command="敵を足止めする">足止め</button
+              ><button data-command="敵を説得する">交渉</button
               ><button data-command="道を開く">道を開く</button
-              ><button data-command="道具を編む">道具を編む</button
-              ><button data-command="傷を癒す">傷を癒す</button
-              ><button data-command="火花を放つ">火花を放つ</button
-              ><button data-command="状態を治す">状態を治す</button>
+              ><button data-command="道具を編む">創作</button
+              ><button data-command="傷を癒す">治癒</button
+              ><button data-command="火花を放つ">火花</button
+              ><button data-command="状態を治す">解毒</button>
             </div>
-            <p class="hint">
-              提案・調査・持ち物の確認は無料。実行すると1ターン進みます。
-            </p>
             <div id="request-status" class="request-status" hidden>
-              <span id="request-text">言葉から可能性を探しています…</span
+              <span id="request-text">可能性を探しています…</span
               ><button id="cancel-request" class="quiet">中止</button>
             </div>
           </section>
-        </section>
-        <aside class="journal" aria-label="観察と記録">
-          <section class="threat-panel">
+          <section
+            id="pane-inventory"
+            role="tabpanel"
+            aria-labelledby="tab-inventory"
+            hidden
+          >
             <div class="section-heading">
-              <h2>次の一手を読む</h2>
-              <span class="eyebrow">INTENT</span>
+              <h2>持ち物 <span id="inventory-count"></span></h2>
+              <button id="dock-craft-button">合成</button
+              ><button id="equipment-button">装備を見る</button>
             </div>
-            <div id="threat-list"></div>
+            <div id="dock-inventory-list" class="group-list"></div>
           </section>
-          <section class="inspection">
-            <div class="section-heading">
-              <h2>観察</h2>
-              <span>ターン消費なし</span>
+          <section
+            id="pane-observe"
+            role="tabpanel"
+            aria-labelledby="tab-observe"
+            hidden
+          >
+            <div class="observation-grid">
+              <section class="inspection">
+                <h3 id="inspect-title">@ 旅人</h3>
+                <p id="inspect-detail">記号を選ぶと敵や地形を観察できます。</p>
+                <p id="selected-coordinate" class="hint"></p>
+              </section>
+              <section class="threat-panel">
+                <h3>次の一手</h3>
+                <div id="threat-list"></div>
+                <button id="memory-button" class="quiet">世界の記憶</button>
+              </section>
             </div>
-            <h3 id="inspect-title">@ 旅人</h3>
-            <p id="inspect-detail">
-              地図の記号を選ぶと、敵の特性や地形の使い道が分かります。
-            </p>
-            <p id="selected-coordinate" class="hint"></p>
           </section>
-          <section class="chronicle">
-            <div class="section-heading">
-              <h2>旅の記録</h2>
-              <button id="memory-button" class="quiet">世界の記憶</button>
-            </div>
-            <div
-              id="log"
-              role="log"
-              aria-live="polite"
-              aria-relevant="additions"
-            ></div>
-          </section>
-          <div class="journal-footer">
-            <span id="save-status">自動セーブ</span><span id="seed-text"></span>
-          </div>
-        </aside>
-      </main>
-      <footer class="site-footer">
-        <span>記号の向こうには、あなたにしか見えない世界がある。</span
-        ><span>ROGUECHAT / 02</span>
+        </div>
+        <nav class="footer-tabs" role="tablist" aria-label="操作の切り替え">
+          <button
+            id="tab-controls"
+            role="tab"
+            aria-selected="true"
+            aria-controls="pane-controls"
+            data-tab="controls"
+          >
+            操作</button
+          ><button
+            id="tab-command"
+            role="tab"
+            aria-selected="false"
+            aria-controls="pane-command"
+            data-tab="command"
+            tabindex="-1"
+          >
+            言葉</button
+          ><button
+            id="tab-inventory"
+            role="tab"
+            aria-selected="false"
+            aria-controls="pane-inventory"
+            data-tab="inventory"
+            tabindex="-1"
+          >
+            持ち物</button
+          ><button
+            id="tab-observe"
+            role="tab"
+            aria-selected="false"
+            aria-controls="pane-observe"
+            data-tab="observe"
+            tabindex="-1"
+          >
+            観察
+          </button>
+        </nav>
       </footer>
     </div>
-
+    <dialog id="group-dialog" aria-labelledby="group-title">
+      <div class="dialog-body">
+        <div class="section-heading">
+          <h2 id="group-title">個別の名前を選ぶ</h2>
+          <button data-close="group-dialog" aria-label="持ち物の種類を閉じる">
+            ×
+          </button>
+        </div>
+        <p class="hint">
+          名前を選ばなければ、おまかせで選びます。補正は識別に成功するまで伏せられています。
+        </p>
+        <label>使う名前<select id="instance-select"></select></label>
+        <p id="instance-detail"></p>
+        <p id="identify-info" class="hint"></p>
+        <div class="group-actions">
+          <button id="item-use" class="primary">使う</button
+          ><button id="item-identify">識別</button
+          ><button id="item-throw">投げる</button
+          ><button id="item-drop">床に置く</button
+          ><button id="item-language">名前を活かす</button>
+        </div>
+        <p class="hint">
+          使用・識別・投擲・配置は1ターン。名前を活かす行動は提案を見てから実行します。
+        </p>
+      </div>
+    </dialog>
+    <dialog id="craft-dialog" aria-labelledby="craft-title">
+      <div class="dialog-body">
+        <div class="section-heading">
+          <h2 id="craft-title">材料を、別の物語へ</h2>
+          <button data-close="craft-dialog" aria-label="合成を閉じる">×</button>
+        </div>
+        <label>材料1の種類<select id="craft-type-a"></select></label
+        ><label>名前<select id="craft-instance-a"></select></label
+        ><label>材料2の種類<select id="craft-type-b"></select></label
+        ><label>名前<select id="craft-instance-b"></select></label>
+        <p id="craft-preview"></p>
+        <p class="risk-box">
+          集中3・1ターン。失敗時も材料2個を失います。合成品の補正は作成時に固定し、識別まで伏せます。敵の攻撃予告に注意してください。
+        </p>
+        <p id="craft-error" class="error" role="alert"></p>
+        <button id="craft-execute" class="primary wide">合成する</button>
+      </div>
+    </dialog>
+    <dialog id="history-dialog" aria-labelledby="history-title">
+      <div class="dialog-body">
+        <div class="section-heading">
+          <h2 id="history-title">旅の履歴</h2>
+          <button data-close="history-dialog" aria-label="履歴を閉じる">
+            ×
+          </button>
+        </div>
+        <div id="full-history"></div>
+      </div>
+    </dialog>
     <dialog
       id="start-dialog"
       class="start-dialog"
@@ -298,7 +415,7 @@
         </div>
         <p id="equipment-text"></p>
         <p class="hint">
-          使用・装備・床に置くと1ターン進みます。道具の所持効果は自動で働きます。
+          種類を開き、個別の名前を選べます。未選択ならおまかせ。識別すると補正を確認できます。
         </p>
         <div id="inventory-list"></div>
       </div>
@@ -359,26 +476,39 @@
           </button>
         </div>
         <p>
-          第五層の守護者を倒すか和解し、<code>0</code>の上で星を持ち帰るとクリア。死亡するとその冒険は終了します。
+          第五層の守護者を倒すか和解し、<code>0</code>の上で星を持ち帰るとクリア。死亡した冒険は終了します。
         </p>
         <h3>時間は、あなたを待つ</h3>
         <p>
-          移動は矢印 / WASD /
-          HJKL。斜めはYUBN。隣の敵へ移動すると通常攻撃。<kbd>.</kbd>で待機、<kbd>I</kbd>で持ち物、<kbd>R</kbd>で野営、<kbd>G</kbd>で護りの提案、<kbd>&gt;</kbd>か<kbd>E</kbd>で階段や道具を操作、<kbd>/</kbd>で自由入力。Enterで提案、Shift＋Enterで改行。
+          下部の操作・言葉・持ち物・観察タブを切り替えて遊びます。地図のタップは無料の観察。移動は矢印
+          / WASD /
+          HJKL、斜めはYUBN。方向ボタンを長押しすると道なりに反復し、角を追従。敵・分岐・拾い物・危険で停止します。離すと停止し、待機は反復しません。
         </p>
-        <h3>予告を読む</h3>
         <p>
-          赤い背景は次の敵の攻撃マス。予告後の1ターンで移動すれば避けられます。大振りは十字の範囲。敵は攻撃後に1ターン休みます。閉じた扉を開けるのにも1ターン必要です。
+          <kbd>.</kbd> 待機 / <kbd>I</kbd> 持ち物 / <kbd>R</kbd> 野営 /
+          <kbd>G</kbd> 護り / <kbd>E</kbd>・<kbd>&gt;</kbd> 階段や道具 /
+          <kbd>Shift＋S</kbd> 探索 /
+          <kbd>/</kbd> 自由入力。Enterで提案、Shift＋Enterで改行。
         </p>
-        <h3>工夫を世界に残す</h3>
+        <h3>敵と地形を読む</h3>
         <p>
-          自由行動は提案を確認してから実行。d6＋能力＋道具＋工夫で判定し、成功すると地形・敵・身体に変化が残ります。失敗しても集中・材料を失い、敵が行動します。交渉の経験値は戦闘と同じ。創作した道具は拾って持ち歩けます。複数の道具による加点は最大＋1、近くの創作物は別に＋1。
+          赤いマスは次の敵の攻撃。移動や拘束で避けられます。敵は攻撃後に1ターン休みます。閉じた扉に移動すると開き、隣の開いた扉を選ぶと閉じられます。隣の敵や扉を選んで蹴ると集中1・1ターンを消費。壁際を探索して隠し戸や備蓄を見つけよう。
         </p>
-        <h3>回復を使い切らない</h3>
+        <h3>名前を選び、性質を知る</h3>
         <p>
-          野営は敵が見えない場所で、糧食1つを消費してHP＋12、集中＋7と状態異常を回復。<code>&amp;</code>の野営地は各階1回無料。集中は4ターンごとに1回復。回復薬・煙・帰還の巻物でピンチを立て直そう。
+          持ち物は種類ごとにまとまっています。種類を開き、個別の名前を選ぶか、おまかせで使います。基本効果は固定。個別の補正は作成時に決まり、識別するまで伏せられています。識別は集中1・1ターン、失敗しても品は残ります。
         </p>
-        <h3>地図の記号</h3>
+        <p>
+          合成は材料の種類と、任意で名前を2つ選びます。集中3・1ターン。成功すると新しい名前の品が生まれ、通常使用もできます。失敗時は材料2個を失います。回復薬＋記憶薬は霊薬、油＋煙は閃光。武器や防具も合成可能。
+        </p>
+        <p>
+          「名前を活かす」から自由入力すると、名前に即した別の働きを提案できます。選んだ消耗品は成功・失敗のどちらでも消費されます。投げた武器や道具は拾い直せますが、回復薬を敵に投げると敵が回復します。
+        </p>
+        <h3>資源を読む</h3>
+        <p>
+          満腹度は3ターンに1減り、0では3ターンにHP2を失います。糧食か野営で備えよう。野営は安全な場所で糧食1つを使い、HP12・集中7・満腹度30と状態異常を回復。野営地<code>&amp;</code>は各階1回無料。集中は6ターンごとに1回復します。
+        </p>
+        <h3>記号の手引き</h3>
         <p class="legend">
           <code>@</code> あなた　<code>#</code> 壁　<code>+</code> 扉　<code
             >&gt;</code
@@ -393,7 +523,7 @@
           道具/野営
         </p>
         <p>
-          各行動後に自動セーブ。再読込で続行できます。旧版のセーブは引き継ぎません。
+          履歴は地図の下に表示。全履歴は「履歴」から。各行動後に自動保存し、再読込で続行できます。
         </p>
       </div>
     </dialog>

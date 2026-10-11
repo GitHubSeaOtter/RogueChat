@@ -58,6 +58,17 @@ function pilot(seed, background, tactical) {
         guardian ||
         g.dungeon.exit
       : guardian || g.dungeon.exit;
+    if (tactical && p.satiety < 25) {
+      const food = p.inventory.find((i) => i.kind === "ration");
+      if (food) {
+        g.useItem(food.id);
+        continue;
+      }
+      if (!visible.length && p.supplies) {
+        g.rest();
+        continue;
+      }
+    }
     if (tactical && p.hp < 15) {
       const item = p.inventory.find((i) => i.kind === "heal");
       if (item) {
@@ -105,12 +116,15 @@ function pilot(seed, background, tactical) {
               (!g.walkable(e.x, p.y) || !g.walkable(p.x, e.y)))),
       );
       if (casterTarget && p.focus >= 3) {
-        g.prepare(
+        const proposed = g.prepare(
           localProposal(g, "火花を放つ", { enemyId: casterTarget.id }),
           "火花を放つ",
         );
-        g.execute();
-        continue;
+        if (proposed.cost <= p.focus) {
+          g.execute();
+          continue;
+        }
+        g.pending = null;
       }
     }
     const adjacent = g
@@ -154,3 +168,8 @@ for (const background of ["wanderer", "scholar", "sentinel"])
     assert.equal(result.result, "won");
     assert.ok(result.turn < 1000);
   });
+
+test("ignoring advertised attacks and recovery is lethal for every background", () => {
+  for (const background of ["wanderer", "scholar", "sentinel"])
+    assert.equal(pilot(1, background, false).result, "dead");
+});

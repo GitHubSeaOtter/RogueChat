@@ -77,7 +77,7 @@ test("Anthropic has a separate endpoint, header and Messages schema", async () =
   assert.equal(request.url, "https://api.anthropic.com/v1/messages");
   assert.equal(request.headers["x-api-key"], "test-anthropic");
   assert.equal(request.headers.Authorization, undefined);
-  assert.equal(request.body.model, "claude-haiku-4-5-20251001");
+  assert.equal(request.body.model, "claude-haiku-5-5");
   assert.deepEqual(request.body.output_config.format.schema, ACTION_SCHEMA);
 });
 test("API errors, incomplete results, refusals and invalid JSON leave gameplay unchanged", async () => {
